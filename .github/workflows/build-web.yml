@@ -1,10 +1,18 @@
-name: Build Web Container (MF Host)
+name: Build Web
 
 on:
   workflow_call:
     inputs:
+      app_type:
+        description: 'Application type: "container" (MF host) or "microfrontend" (MF remote)'
+        required: true
+        type: string
       app_name:
-        description: 'Name of the web container app (e.g., vritti-web-nexus)'
+        description: 'Name of the application (e.g., vritti-web-nexus, vritti-auth)'
+        required: true
+        type: string
+      deploy_path:
+        description: 'Deployment path relative to /opt/vritti/www (e.g., "/" for container, "/vritti-auth" for MF)'
         required: true
         type: string
       node_version:
@@ -23,12 +31,12 @@ on:
         type: string
         default: 'dist'
       production_domain:
-        description: 'Production domain URL'
+        description: 'Production domain URL (for manifest URL updates)'
         required: false
         type: string
         default: 'https://cloud.vrittiai.com'
       microfrontend_artifacts:
-        description: 'JSON array of MF artifact names to merge (e.g., ["vritti-auth-abc123"])'
+        description: 'JSON array of MF artifact names to merge (container only, e.g., ["vritti-auth-abc123"])'
         required: false
         type: string
         default: '[]'
@@ -91,23 +99,45 @@ jobs:
             exit 1
           fi
 
-          if [ ! -f "${{ inputs.output_dir }}/index.html" ]; then
-            echo "❌ index.html not found in build output"
+          # Verify based on app type
+          if [ "${{ inputs.app_type }}" = "container" ]; then
+            # Container apps MUST have index.html
+            if [ ! -f "${{ inputs.output_dir }}/index.html" ]; then
+              echo "❌ index.html not found in build output (required for container apps)"
+              exit 1
+            fi
+            echo "✅ Web container build verified (index.html found)"
+          elif [ "${{ inputs.app_type }}" = "microfrontend" ]; then
+            # Microfrontends should have mf-manifest.json (informational)
+            if [ -f "${{ inputs.output_dir }}/mf-manifest.json" ]; then
+              echo "✅ Module Federation manifest found"
+              cat "${{ inputs.output_dir }}/mf-manifest.json"
+            else
+              echo "⚠️  No mf-manifest.json found (optional for microfrontends)"
+            fi
+
+            # Check for index.html (some MFs may have it)
+            if [ -f "${{ inputs.output_dir }}/index.html" ]; then
+              echo "✅ index.html found"
+            fi
+
+            echo "✅ Microfrontend build verified"
+          else
+            echo "❌ Invalid app_type: ${{ inputs.app_type }} (must be 'container' or 'microfrontend')"
             exit 1
           fi
 
-          echo "✅ Web container build verified"
           echo "📁 Build output contents:"
           ls -la "${{ inputs.output_dir }}/"
 
       - name: Download microfrontend artifacts
-        if: inputs.microfrontend_artifacts != '[]'
+        if: inputs.app_type == 'container' && inputs.microfrontend_artifacts != '[]'
         uses: actions/download-artifact@v4
         with:
           path: /tmp/mf-artifacts
 
       - name: Merge microfrontend assets
-        if: inputs.microfrontend_artifacts != '[]'
+        if: inputs.app_type == 'container' && inputs.microfrontend_artifacts != '[]'
         run: |
           echo "🔄 Merging microfrontend assets..."
 
@@ -152,15 +182,30 @@ jobs:
 
       - name: Generate build summary
         run: |
-          echo "## 🌐 Web Container Build Summary" >> $GITHUB_STEP_SUMMARY
+          # Set emoji based on app type
+          if [ "${{ inputs.app_type }}" = "container" ]; then
+            EMOJI="🌐"
+            TYPE_LABEL="Web Container (MF Host)"
+          else
+            EMOJI="📦"
+            TYPE_LABEL="Microfrontend (MF Remote)"
+          fi
+
+          echo "## $EMOJI $TYPE_LABEL Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**App:** \`${{ inputs.app_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Type:** \`${{ inputs.app_type }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Deploy Path:** \`${{ inputs.deploy_path }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** \`${{ steps.vars.outputs.short_sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Artifact:** \`${{ steps.vars.outputs.artifact_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Build Output" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          find "${{ inputs.output_dir }}" -type f | head -30 >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.app_type }}" = "container" ]; then
+            find "${{ inputs.output_dir }}" -type f | head -30 >> $GITHUB_STEP_SUMMARY
+          else
+            ls -lh "${{ inputs.output_dir }}/" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Total size:** $(du -sh "${{ inputs.output_dir }}" | cut -f1)" >> $GITHUB_STEP_SUMMARY

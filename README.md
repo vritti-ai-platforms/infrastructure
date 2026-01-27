@@ -7,11 +7,10 @@ Centralized infrastructure configuration for Vritti platform deployment.
 ```
 infrastructure/
 ├── .github/workflows/           # Reusable GitHub Actions workflows
-│   ├── build-api.yml           # Build NestJS API services
-│   ├── build-microfrontend.yml # Build MF remote apps
-│   ├── build-web-container.yml # Build MF host app
-│   ├── deploy-docker.yml       # Deploy Docker services
-│   └── deploy-static.yml       # Deploy static files
+│   ├── build-backend-image.yml # Build NestJS API services
+│   ├── build-web.yml           # Build web apps (container & MF)
+│   ├── deploy-backend-image.yml # Deploy Docker services
+│   └── deploy-web-build.yml    # Deploy static web builds
 ├── docker/
 │   ├── docker-compose.yml      # Production compose file
 │   └── .env.example            # Environment template
@@ -25,13 +24,13 @@ infrastructure/
 
 ## Reusable Workflows
 
-### build-api.yml
+### build-backend-image.yml
 Builds and pushes NestJS API services to GHCR.
 
 ```yaml
 jobs:
   build:
-    uses: vritti-ai-platforms/infrastructure/.github/workflows/build-api.yml@main
+    uses: vritti-ai-platforms/infrastructure/.github/workflows/build-backend-image.yml@main
     with:
       service_name: vritti-api-nexus
     secrets: inherit
@@ -50,47 +49,66 @@ jobs:
 - `image_digest` - Image digest
 - `short_sha` - Short commit SHA
 
-### build-microfrontend.yml
-Builds microfrontend remote applications and uploads as artifacts.
+### build-web.yml
+Unified workflow for building web applications - both Module Federation hosts (containers) and remotes (microfrontends).
 
+#### Container App Example (vritti-web-nexus)
 ```yaml
 jobs:
   build:
-    uses: vritti-ai-platforms/infrastructure/.github/workflows/build-microfrontend.yml@main
+    uses: vritti-ai-platforms/infrastructure/.github/workflows/build-web.yml@main
     with:
+      app_type: container
+      app_name: vritti-web-nexus
+      deploy_path: /
+      node_version: '20'
+      build_command: pnpm build
+      output_dir: dist
+    secrets: inherit
+```
+
+#### Microfrontend App Example (vritti-auth)
+```yaml
+jobs:
+  build:
+    uses: vritti-ai-platforms/infrastructure/.github/workflows/build-web.yml@main
+    with:
+      app_type: microfrontend
       app_name: vritti-auth
-      production_domain: https://cloud.vrittiai.com
+      deploy_path: /vritti-auth
+      node_version: '20'
+      build_command: pnpm build
+      output_dir: dist
     secrets: inherit
 ```
 
 **Inputs:**
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `app_name` | Yes | - | Microfrontend app name |
+| `app_type` | Yes | - | `"container"` (MF host) or `"microfrontend"` (MF remote) |
+| `app_name` | Yes | - | Application name (e.g., `vritti-web-nexus`, `vritti-auth`) |
+| `deploy_path` | Yes | - | Deploy path relative to `/opt/vritti/www` (e.g., `/` or `/vritti-auth`) |
+| `node_version` | No | `20` | Node.js version |
 | `build_command` | No | `pnpm build` | Build command |
 | `output_dir` | No | `dist` | Build output directory |
-| `production_domain` | No | `https://cloud.vrittiai.com` | Production URL |
+| `production_domain` | No | `https://cloud.vrittiai.com` | Production domain URL |
+| `microfrontend_artifacts` | No | `[]` | JSON array of MF artifacts to merge (container only) |
 
-### build-web-container.yml
-Builds the Module Federation host application.
+**Outputs:**
+- `artifact_name` - Name of the uploaded artifact
+- `short_sha` - Short commit SHA
 
-```yaml
-jobs:
-  build:
-    uses: vritti-ai-platforms/infrastructure/.github/workflows/build-web-container.yml@main
-    with:
-      app_name: vritti-web-nexus
-      microfrontend_artifacts: '["vritti-auth-abc123"]'
-    secrets: inherit
-```
+**How it works:**
+- **Container apps**: Verifies `index.html` exists, can merge microfrontend artifacts
+- **Microfrontend apps**: Checks for `mf-manifest.json` (informational), standalone build
 
-### deploy-docker.yml
+### deploy-backend-image.yml
 Deploys Docker services to the server VM.
 
 ```yaml
 jobs:
   deploy:
-    uses: vritti-ai-platforms/infrastructure/.github/workflows/deploy-docker.yml@main
+    uses: vritti-ai-platforms/infrastructure/.github/workflows/deploy-backend-image.yml@main
     with:
       service_name: vritti-api
       image_tag: ghcr.io/org/vritti-api-nexus:abc123
@@ -102,13 +120,13 @@ jobs:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
 ```
 
-### deploy-static.yml
-Deploys static files (frontend builds) to the server.
+### deploy-web-build.yml
+Deploys static web builds to the server.
 
 ```yaml
 jobs:
   deploy:
-    uses: vritti-ai-platforms/infrastructure/.github/workflows/deploy-static.yml@main
+    uses: vritti-ai-platforms/infrastructure/.github/workflows/deploy-web-build.yml@main
     with:
       artifact_name: vritti-web-nexus-abc123
       deploy_path: /opt/vritti/www

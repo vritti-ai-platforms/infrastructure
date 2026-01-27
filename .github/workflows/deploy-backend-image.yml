@@ -1,4 +1,4 @@
-name: Deploy Docker Service
+name: Deploy Backend Image
 
 on:
   workflow_call:
