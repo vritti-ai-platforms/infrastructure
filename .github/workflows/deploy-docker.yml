@@ -1,0 +1,215 @@
+name: Deploy Docker Service
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: 'Name of the service to deploy (must match docker-compose service name)'
+        required: true
+        type: string
+      image_tag:
+        description: 'Full image tag to deploy'
+        required: true
+        type: string
+      compose_file:
+        description: 'Path to docker-compose file on server'
+        required: false
+        type: string
+        default: '/opt/vritti/docker-compose.yml'
+      working_dir:
+        description: 'Working directory on server'
+        required: false
+        type: string
+        default: '/opt/vritti'
+      health_check_url:
+        description: 'URL to check after deployment (optional)'
+        required: false
+        type: string
+        default: ''
+      run_migrations:
+        description: 'Whether to run database migrations'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      SERVER_VM_HOST:
+        description: 'Server VM hostname or IP'
+        required: true
+      SERVER_VM_USER:
+        description: 'SSH username'
+        required: true
+      SERVER_VM_SSH_KEY:
+        description: 'SSH private key'
+        required: true
+      GHCR_TOKEN:
+        description: 'GitHub Container Registry token'
+        required: true
+      DB_DIRECT_URL:
+        description: 'Database URL for migrations (required if run_migrations is true)'
+        required: false
+      # Database Configuration
+      PRIMARY_DB_HOST:
+        description: 'Database VM private IP'
+        required: true
+      PRIMARY_DB_USERNAME:
+        description: 'Database username'
+        required: true
+      PRIMARY_DB_PASSWORD:
+        description: 'Database password'
+        required: true
+      # Security Secrets
+      JWT_SECRET:
+        description: 'JWT signing secret (64 chars)'
+        required: true
+      COOKIE_SECRET:
+        description: 'Cookie signing secret (32 chars)'
+        required: true
+      CSRF_HMAC_KEY:
+        description: 'CSRF HMAC key (32 chars)'
+        required: true
+      ENCRYPTION_KEY:
+        description: 'Encryption key (32 chars)'
+        required: true
+      # External Services
+      BREVO_API_KEY:
+        description: 'Email service API key'
+        required: true
+      SMS_PROVIDER_API_KEY:
+        description: 'SMS service API key'
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Deploy to Server VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_VM_HOST }}
+          username: ${{ secrets.SERVER_VM_USER }}
+          key: ${{ secrets.SERVER_VM_SSH_KEY }}
+          script: |
+            set -e
+
+            echo "🚀 Deploying ${{ inputs.service_name }}..."
+            cd ${{ inputs.working_dir }}
+
+            # Login to GHCR
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull the specific image
+            echo "📥 Pulling image: ${{ inputs.image_tag }}"
+            docker pull ${{ inputs.image_tag }}
+
+            # Export environment variables for docker compose
+            echo "🔧 Setting environment variables..."
+            export PRIMARY_DB_HOST="${{ secrets.PRIMARY_DB_HOST }}"
+            export PRIMARY_DB_PORT="${{ vars.PRIMARY_DB_PORT || '5432' }}"
+            export PRIMARY_DB_USERNAME="${{ secrets.PRIMARY_DB_USERNAME }}"
+            export PRIMARY_DB_PASSWORD="${{ secrets.PRIMARY_DB_PASSWORD }}"
+            export PRIMARY_DB_DATABASE="${{ vars.PRIMARY_DB_DATABASE || 'saas_db' }}"
+            export PRIMARY_DB_SCHEMA="${{ vars.PRIMARY_DB_SCHEMA || 'cloud' }}"
+            export PRIMARY_DB_SSL_MODE="${{ vars.PRIMARY_DB_SSL_MODE || 'require' }}"
+            export JWT_SECRET="${{ secrets.JWT_SECRET }}"
+            export COOKIE_SECRET="${{ secrets.COOKIE_SECRET }}"
+            export CSRF_HMAC_KEY="${{ secrets.CSRF_HMAC_KEY }}"
+            export ENCRYPTION_KEY="${{ secrets.ENCRYPTION_KEY }}"
+            export WEBAUTHN_RP_ID="${{ vars.WEBAUTHN_RP_ID }}"
+            export WEBAUTHN_ORIGIN="${{ vars.WEBAUTHN_ORIGIN }}"
+            export REFRESH_COOKIE_DOMAIN="${{ vars.REFRESH_COOKIE_DOMAIN }}"
+            export BREVO_API_KEY="${{ secrets.BREVO_API_KEY }}"
+            export SMS_PROVIDER_API_KEY="${{ secrets.SMS_PROVIDER_API_KEY }}"
+
+            # Update service with new image
+            echo "🔄 Updating service..."
+            docker compose -f ${{ inputs.compose_file }} up -d ${{ inputs.service_name }}
+
+            # Wait for container to be healthy
+            echo "⏳ Waiting for container to be healthy..."
+            sleep 15
+
+            # Verify container is running
+            echo "✅ Container status:"
+            docker compose -f ${{ inputs.compose_file }} ps ${{ inputs.service_name }}
+
+            # Show recent logs
+            echo "📋 Recent logs:"
+            docker compose -f ${{ inputs.compose_file }} logs --tail=20 ${{ inputs.service_name }}
+
+            # Cleanup old images
+            echo "🧹 Cleaning up old images..."
+            docker image prune -f
+
+            echo "✅ Deployment complete!"
+
+      - name: Health check
+        if: inputs.health_check_url != ''
+        run: |
+          echo "🏥 Running health check..."
+          sleep 10
+
+          max_attempts=5
+          attempt=1
+
+          while [ $attempt -le $max_attempts ]; do
+            echo "Attempt $attempt of $max_attempts..."
+            if curl -sf "${{ inputs.health_check_url }}" > /dev/null; then
+              echo "✅ Health check passed!"
+              exit 0
+            fi
+            echo "⏳ Health check failed, retrying in 10s..."
+            sleep 10
+            attempt=$((attempt + 1))
+          done
+
+          echo "❌ Health check failed after $max_attempts attempts"
+          exit 1
+
+      - name: Generate deployment summary
+        run: |
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service:** \`${{ inputs.service_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ inputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Server:** \`${{ secrets.SERVER_VM_HOST }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.health_check_url }}" != "" ]; then
+            echo "**Health Check:** ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  run-migrations:
+    if: inputs.run_migrations
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run database migrations
+        run: pnpm db:migrate
+        env:
+          PRIMARY_DB_DATABASE_DIRECT_URL: ${{ secrets.DB_DIRECT_URL }}
+
+      - name: Migration summary
+        run: |
+          echo "## 🗄️ Database Migrations" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Migrations completed successfully" >> $GITHUB_STEP_SUMMARY

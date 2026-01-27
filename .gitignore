@@ -1,0 +1,33 @@
+# Secrets
+.env
+.env.production
+.env.staging
+!.env.example
+*.key
+*.pem
+*.crt
+*.p12
+secrets/
+
+# Temporary files
+*.log
+*.tmp
+.DS_Store
+
+# Build artifacts
+dist/
+build/
+node_modules/
+
+# Backup files
+*.backup
+*.bak
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
