@@ -154,7 +154,7 @@ Configure these in each repository that uses the reusable workflows:
 | `SERVER_VM_USER` | SSH username (e.g., `deploy`) |
 | `SERVER_VM_SSH_KEY` | Private SSH key (ed25519) |
 | `GHCR_TOKEN` | GitHub PAT with `read:packages` scope |
-| `DB_DIRECT_URL` | PostgreSQL admin URL (for migrations) |
+| `PRIMARY_DB_DATABASE_DIRECT_URL` | PostgreSQL admin URL (for migrations) |
 
 ## GitHub Variables
 

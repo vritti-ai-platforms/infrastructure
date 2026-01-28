@@ -44,7 +44,7 @@ on:
       GHCR_TOKEN:
         description: 'GitHub Container Registry token'
         required: true
-      DB_DIRECT_URL:
+      PRIMARY_DB_DATABASE_DIRECT_URL:
         description: 'Database URL for migrations (required if run_migrations is true)'
         required: false
       # Database Configuration
@@ -206,7 +206,7 @@ jobs:
       - name: Run database migrations
         run: pnpm db:migrate
         env:
-          PRIMARY_DB_DATABASE_DIRECT_URL: ${{ secrets.DB_DIRECT_URL }}
+          PRIMARY_DB_DATABASE_DIRECT_URL: ${{ secrets.PRIMARY_DB_DATABASE_DIRECT_URL }}
 
       - name: Migration summary
         run: |
