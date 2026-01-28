@@ -30,3 +30,10 @@ node_modules/
 
 # OS
 Thumbs.db
+
+# Docker runtime directories and files
+docker/www/
+docker/ssl/
+docker/logs/
+docker/letsencrypt/
+docker/.env

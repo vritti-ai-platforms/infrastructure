@@ -1,6 +1,7 @@
-# Production Docker Compose Configuration
-# Used by: GitHub Actions workflow (vm-setup.yml) on Linux VM
-# Platform: Uses native architecture of the VM (typically linux/amd64)
+# Local Development Docker Compose Configuration (macOS)
+# Used by: Local development on Mac (Apple Silicon M1/M2/M3 or Intel)
+# Platform: Uses native architecture (arm64 for Apple Silicon, amd64 for Intel Mac)
+# Usage: docker compose -f docker-compose-mac.yml up -d
 
 services:
   # Nginx Reverse Proxy & Static File Server
