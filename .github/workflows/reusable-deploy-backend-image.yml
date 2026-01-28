@@ -57,6 +57,9 @@ on:
       PRIMARY_DB_PASSWORD:
         description: 'Database password'
         required: true
+      PRIMARY_DB_SSL_MODE:
+        description: 'Database SSL mode (require, prefer, disable, no-verify)'
+        required: false
       # Security Secrets
       JWT_SECRET:
         description: 'JWT signing secret (64 chars)'
@@ -111,7 +114,7 @@ jobs:
             export PRIMARY_DB_PASSWORD="${{ secrets.PRIMARY_DB_PASSWORD }}"
             export PRIMARY_DB_DATABASE="${{ vars.PRIMARY_DB_DATABASE || 'saas_db' }}"
             export PRIMARY_DB_SCHEMA="${{ vars.PRIMARY_DB_SCHEMA || 'cloud' }}"
-            export PRIMARY_DB_SSL_MODE="${{ vars.PRIMARY_DB_SSL_MODE || 'require' }}"
+            export PRIMARY_DB_SSL_MODE="${{ secrets.PRIMARY_DB_SSL_MODE || 'disable' }}"
             export JWT_SECRET="${{ secrets.JWT_SECRET }}"
             export COOKIE_SECRET="${{ secrets.COOKIE_SECRET }}"
             export CSRF_HMAC_KEY="${{ secrets.CSRF_HMAC_KEY }}"
