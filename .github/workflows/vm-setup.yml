@@ -109,6 +109,7 @@ jobs:
           host: ${{ secrets.SERVER_VM_HOST }}
           username: ${{ secrets.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
+          debug: true
           script: |
             echo "SUCCESS: SSH connection successful"
             echo "System info:"
