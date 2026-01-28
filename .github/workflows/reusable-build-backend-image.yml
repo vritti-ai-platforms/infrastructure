@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       service_name:
-        description: 'Name of the service (e.g., vritti-api-nexus)'
+        description: 'Service name (e.g., api-nexus)'
         required: true
         type: string
       dockerfile_path:

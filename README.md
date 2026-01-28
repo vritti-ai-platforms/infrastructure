@@ -40,7 +40,7 @@ jobs:
   build:
     uses: vritti-ai-platforms/infrastructure/.github/workflows/reusable-build-backend-image.yml@main
     with:
-      service_name: vritti-api-nexus
+      service_name: api-nexus
     secrets: inherit
 ```
 
@@ -118,8 +118,8 @@ jobs:
   deploy:
     uses: vritti-ai-platforms/infrastructure/.github/workflows/reusable-deploy-backend-image.yml@main
     with:
-      service_name: vritti-api
-      image_tag: ghcr.io/org/vritti-api-nexus:abc123
+      service_name: api-nexus
+      image_tag: ghcr.io/org/api-nexus:abc123
       health_check_url: https://cloud.vrittiai.com/health
     secrets:
       SERVER_VM_HOST: ${{ secrets.SERVER_VM_HOST }}
@@ -174,12 +174,12 @@ Configure these in each repository that uses the reusable workflows:
 
 ### Container Stack
 ```
-nginx-proxy (ports 80, 443)
+nginx (ports 80, 443)
   ├── Serves static files from /opt/vritti/www
   ├── SSL termination (wildcard cert for *.vrittiai.com)
-  └── Reverse proxy to vritti-api:3000 (internal network)
+  └── Reverse proxy to api-nexus:3000 (internal network)
 
-vritti-api (port 3000, internal only)
+api-nexus (port 3000, internal only)
   └── NestJS backend service
 ```
 
@@ -272,13 +272,13 @@ Nginx configuration changes trigger automatic deployment:
 ```bash
 # Build image
 cd infrastructure/nginx
-docker build -t ghcr.io/org/vritti-nginx:latest .
+docker build -t ghcr.io/org/nginx:latest .
 
 # Push to registry
-docker push ghcr.io/org/vritti-nginx:latest
+docker push ghcr.io/org/nginx:latest
 
 # Deploy on server
-ssh ubuntu@<server-ip> 'cd /opt/vritti && docker compose pull nginx-proxy && docker compose up -d nginx-proxy'
+ssh ubuntu@<server-ip> 'cd /opt/vritti && docker compose pull nginx && docker compose up -d nginx'
 ```
 
 ## Architecture
@@ -291,7 +291,7 @@ Server VM (2 CPU, 4GB)              DB VM (2 CPU, 1GB)
 │ Docker Compose Stack     │       │ PostgreSQL 17 (native)   │
 │                          │       │ - Tuned for 1GB RAM      │
 │ ┌────────────────────┐   │       │                          │
-│ │ nginx-proxy        │   │       │ Backup Service → R2      │
+│ │ nginx              │   │       │ Backup Service → R2      │
 │ │ - Ports: 80, 443   │   │       │                          │
 │ │ - Static files     │   │       └──────────────────────────┘
 │ │ - SSL termination  │   │                 ▲
@@ -300,7 +300,7 @@ Server VM (2 CPU, 4GB)              DB VM (2 CPU, 1GB)
 │          │ network       │                 │
 │          ▼               │                 │
 │ ┌────────────────────┐   │                 │
-│ │ vritti-api         │───┼─────────────────┘
+│ │ api-nexus          │───┼─────────────────┘
 │ │ - Port: 3000       │   │
 │ │ - Internal only    │   │
 │ └────────────────────┘   │
@@ -331,21 +331,21 @@ The infrastructure supports **any subdomain** under `*.vrittiai.com`:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ nginx-proxy (ports 80, 443)                             │
+│ nginx (ports 80, 443)                                   │
 │ ├── Volume: /opt/vritti/www → /usr/share/nginx/html:ro │
 │ ├── Volume: /opt/vritti/ssl → /etc/nginx/ssl:ro        │
 │ ├── Volume: /opt/vritti/logs/nginx → /var/log/nginx    │
 │ ├── Serves static files (Module Federation apps)        │
 │ ├── SSL termination (wildcard cert *.vrittiai.com)     │
-│ └── Reverse proxy to vritti-api:3000 (internal network)│
+│ └── Reverse proxy to api-nexus:3000 (internal network) │
 └─────────────────────────────────────────────────────────┘
                             │
                             ▼ (Docker internal network)
 ┌─────────────────────────────────────────────────────────┐
-│ vritti-api (port 3000, internal only)                   │
+│ api-nexus (port 3000, internal only)                    │
 │ ├── Volume: /opt/vritti/logs/api → /app/logs           │
 │ ├── NOT exposed to host (no port mapping)              │
-│ ├── Only accessible via nginx-proxy                     │
+│ ├── Only accessible via nginx                           │
 │ └── NestJS backend service                              │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -364,10 +364,10 @@ Cloudflare (DNS/CDN, DDoS protection)
     ▼
 Server VM (210.79.129.244)
     │
-    ├─→ Port 80 (HTTP) ──→ nginx-proxy:80
+    ├─→ Port 80 (HTTP) ──→ nginx:80
     │                      └─→ 301 Redirect to HTTPS
     │
-    └─→ Port 443 (HTTPS) ─→ nginx-proxy:443
+    └─→ Port 443 (HTTPS) ─→ nginx:443
             │
             ├─→ / ────────────────────→ Static files (/usr/share/nginx/html/)
             │                           Serves: vritti-web-nexus (container)
@@ -375,7 +375,7 @@ Server VM (210.79.129.244)
             ├─→ /vritti-auth/* ───────→ Static files (/usr/share/nginx/html/vritti-auth/)
             │                           Serves: vritti-auth (microfrontend)
             │
-            ├─→ /api/* ───────────────→ Reverse proxy to http://vritti-api:3000
+            ├─→ /api/* ───────────────→ Reverse proxy to http://api-nexus:3000
             │                           (Docker internal network)
             │                           Path rewrite: /api/users → /users
             │
@@ -383,7 +383,7 @@ Server VM (210.79.129.244)
             │
             ├─→ /mf-manifest.json ────→ Module Federation manifest (cached 5 min)
             │
-            ├─→ /health ──────────────→ Proxy to vritti-api:3000/health
+            ├─→ /health ──────────────→ Proxy to api-nexus:3000/health
             │
             └─→ /** ──────────────────→ SPA fallback (serves index.html)
                                         For client-side routing

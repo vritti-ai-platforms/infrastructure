@@ -2,9 +2,9 @@ version: '3.8'
 
 services:
   # Nginx Reverse Proxy & Static File Server
-  nginx-proxy:
-    image: ghcr.io/${GITHUB_ORG:-yourorg}/vritti-nginx:latest
-    container_name: nginx-proxy
+  nginx:
+    image: ghcr.io/${GITHUB_ORG:-yourorg}/nginx:latest
+    container_name: nginx
     ports:
       - "80:80"
       - "443:443"
@@ -18,7 +18,7 @@ services:
       # Let's Encrypt challenge directory
       - /var/www/letsencrypt:/var/www/letsencrypt:ro
     depends_on:
-      vritti-api:
+      api-nexus:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -31,9 +31,9 @@ services:
       start_period: 10s
 
   # API Service
-  vritti-api:
-    image: ghcr.io/${GITHUB_ORG:-yourorg}/vritti-api-nexus:${API_VERSION:-latest}
-    container_name: vritti-api
+  api-nexus:
+    image: ghcr.io/${GITHUB_ORG:-yourorg}/api-nexus:${API_VERSION:-latest}
+    container_name: api-nexus
     restart: unless-stopped
     # NO PORT EXPOSURE - only accessible via internal Docker network
     expose:

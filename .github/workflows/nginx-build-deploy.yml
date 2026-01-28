@@ -13,7 +13,7 @@ jobs:
     name: Build Nginx Image
     uses: ./.github/workflows/nginx-build.yml
     with:
-      image_name: vritti-nginx
+      service_name: nginx
       dockerfile_path: ./nginx/Dockerfile
       build_context: ./nginx
     secrets: inherit

@@ -3,11 +3,11 @@ name: Build Nginx Image
 on:
   workflow_dispatch:
     inputs:
-      image_name:
-        description: 'Name of the image (e.g., vritti-nginx)'
+      service_name:
+        description: 'Service name (e.g., nginx)'
         required: false
         type: string
-        default: 'vritti-nginx'
+        default: 'nginx'
       dockerfile_path:
         description: 'Path to Dockerfile'
         required: false
@@ -20,8 +20,8 @@ on:
         default: './nginx'
   workflow_call:
     inputs:
-      image_name:
-        description: 'Name of the image (e.g., vritti-nginx)'
+      service_name:
+        description: 'Service name (e.g., nginx)'
         required: true
         type: string
       dockerfile_path:
@@ -82,7 +82,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ inputs.image_name }}
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ inputs.service_name }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=,format=short
@@ -105,7 +105,7 @@ jobs:
         run: |
           echo "## [NGINX] Docker Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** \`${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ inputs.image_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ inputs.service_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

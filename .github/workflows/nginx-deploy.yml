@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 'Full image tag to deploy (e.g., ghcr.io/owner/vritti-nginx:abc123)'
+        description: 'Full image tag to deploy (e.g., ghcr.io/owner/nginx:abc123)'
         required: true
         type: string
       service_name:
@@ -95,7 +95,7 @@ jobs:
 
             # Update docker-compose.yml with new image tag
             if [ -f "${{ inputs.compose_file }}" ]; then
-              sed -i "s|image: ghcr.io/.*/vritti-nginx:.*|image: ${IMAGE_TAG}|" "${{ inputs.compose_file }}"
+              sed -i "s|image: ghcr.io/.*/nginx:.*|image: ${IMAGE_TAG}|" "${{ inputs.compose_file }}"
               echo "[OK] Updated docker-compose.yml with new image tag"
             else
               echo "[WARNING] docker-compose.yml not found at ${{ inputs.compose_file }}"
@@ -130,7 +130,7 @@ jobs:
 
             # Cleanup old images (keep last 3)
             echo "[CLEANUP] Cleaning up old images..."
-            docker images --filter=reference="ghcr.io/*/vritti-nginx" --format "{{.ID}} {{.Tag}}" | \
+            docker images --filter=reference="ghcr.io/*/nginx" --format "{{.ID}} {{.Tag}}" | \
               grep -v "latest" | \
               tail -n +4 | \
               awk '{print $1}' | \
