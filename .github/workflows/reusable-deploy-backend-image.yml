@@ -108,6 +108,8 @@ jobs:
 
             # Export environment variables for docker compose
             echo "[CONFIG] Setting environment variables..."
+            export API_VERSION="latest"
+            export GITHUB_ORG="${{ github.repository_owner }}"
             export PRIMARY_DB_HOST="${{ secrets.PRIMARY_DB_HOST }}"
             export PRIMARY_DB_PORT="${{ vars.PRIMARY_DB_PORT || '5432' }}"
             export PRIMARY_DB_USERNAME="${{ secrets.PRIMARY_DB_USERNAME }}"
