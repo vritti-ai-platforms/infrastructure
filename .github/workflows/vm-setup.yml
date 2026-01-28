@@ -3,10 +3,6 @@ name: Setup Server VM
 on:
   workflow_dispatch:
     inputs:
-      vm_host:
-        description: 'VM hostname or IP address'
-        required: true
-        type: string
       skip_docker:
         description: 'Skip Docker installation (if already installed)'
         type: boolean
@@ -17,10 +13,6 @@ on:
         default: true
   workflow_call:
     inputs:
-      vm_host:
-        description: 'VM hostname or IP address'
-        required: true
-        type: string
       skip_docker:
         description: 'Skip Docker installation (if already installed)'
         required: false
@@ -32,6 +24,9 @@ on:
         type: boolean
         default: true
     secrets:
+      SERVER_VM_HOST:
+        description: 'VM hostname or IP address'
+        required: true
       SERVER_VM_USER:
         description: 'SSH username'
         required: true
@@ -92,8 +87,8 @@ jobs:
 
       - name: Validate VM host
         run: |
-          echo "Validating VM host: ${{ inputs.vm_host }}"
-          if [[ ! "${{ inputs.vm_host }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ ! "${{ inputs.vm_host }}" =~ ^[a-zA-Z0-9\.-]+$ ]]; then
+          echo "Validating VM host: ${{ secrets.SERVER_VM_HOST }}"
+          if [[ ! "${{ secrets.SERVER_VM_HOST }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ ! "${{ secrets.SERVER_VM_HOST }}" =~ ^[a-zA-Z0-9\.-]+$ ]]; then
             echo "ERROR: Invalid VM host format"
             exit 1
           fi
@@ -102,7 +97,7 @@ jobs:
       - name: Test SSH connectivity
         uses: appleboy/ssh-action@v1.0.0
         with:
-          host: ${{ inputs.vm_host }}
+          host: ${{ secrets.SERVER_VM_HOST }}
           username: ${{ secrets.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
           script: |
@@ -115,7 +110,7 @@ jobs:
       - name: Copy setup scripts to VM
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ inputs.vm_host }}
+          host: ${{ secrets.SERVER_VM_HOST }}
           username: ${{ secrets.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
           source: "server-vm/scripts/*"
@@ -126,7 +121,7 @@ jobs:
         if: ${{ !inputs.skip_docker }}
         uses: appleboy/ssh-action@v1.0.0
         with:
-          host: ${{ inputs.vm_host }}
+          host: ${{ secrets.SERVER_VM_HOST }}
           username: ${{ secrets.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
           script: |
@@ -136,7 +131,7 @@ jobs:
       - name: Setup deploy user and directories
         uses: appleboy/ssh-action@v1.0.0
         with:
-          host: ${{ inputs.vm_host }}
+          host: ${{ secrets.SERVER_VM_HOST }}
           username: ${{ secrets.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
           script: |
@@ -146,7 +141,7 @@ jobs:
       - name: Copy docker-compose.yml
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ inputs.vm_host }}
+          host: ${{ secrets.SERVER_VM_HOST }}
           username: ${{ secrets.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
           source: "docker/docker-compose.yml"
@@ -171,7 +166,7 @@ jobs:
           WEBAUTHN_ORIGIN: ${{ secrets.WEBAUTHN_ORIGIN }}
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
         with:
-          host: ${{ inputs.vm_host }}
+          host: ${{ secrets.SERVER_VM_HOST }}
           username: ${{ secrets.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
           envs: GITHUB_ORG,PRIMARY_DB_HOST,PRIMARY_DB_PORT,PRIMARY_DB_USERNAME,PRIMARY_DB_PASSWORD,PRIMARY_DB_DATABASE,PRIMARY_DB_SCHEMA,JWT_SECRET,COOKIE_SECRET,CSRF_HMAC_KEY,ENCRYPTION_KEY,WEBAUTHN_RP_ID,WEBAUTHN_ORIGIN,BREVO_API_KEY
@@ -232,7 +227,7 @@ jobs:
       - name: Verify installation
         uses: appleboy/ssh-action@v1.0.0
         with:
-          host: ${{ inputs.vm_host }}
+          host: ${{ secrets.SERVER_VM_HOST }}
           username: ${{ secrets.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
           script: |
@@ -258,7 +253,7 @@ jobs:
         if: always()
         uses: appleboy/ssh-action@v1.0.0
         with:
-          host: ${{ inputs.vm_host }}
+          host: ${{ secrets.SERVER_VM_HOST }}
           username: ${{ secrets.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
           script: |
@@ -270,7 +265,7 @@ jobs:
         run: |
           echo "## VM Setup Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**VM Host:** \`${{ inputs.vm_host }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**VM Host:** \`${{ secrets.SERVER_VM_HOST }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Setup Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Installed Components" >> $GITHUB_STEP_SUMMARY
@@ -283,19 +278,37 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
           if [ "${{ inputs.deploy_services }}" == "true" ]; then
-            echo "Services will be deployed automatically..." >> $GITHUB_STEP_SUMMARY
+            echo "Services will be started automatically using docker-compose..." >> $GITHUB_STEP_SUMMARY
           else
-            echo "1. Deploy Nginx: Run \`nginx-build-deploy.yml\` workflow" >> $GITHUB_STEP_SUMMARY
-            echo "2. Deploy API: Run \`reusable-build-backend-image.yml\` then \`reusable-deploy-backend-image.yml\`" >> $GITHUB_STEP_SUMMARY
-            echo "3. Deploy Web: Run \`reusable-build-web.yml\` then \`reusable-deploy-web-build.yml\`" >> $GITHUB_STEP_SUMMARY
+            echo "To start services: \`cd /opt/vritti && docker compose up -d\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To build and deploy individual services:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Build/Deploy Nginx: Run \`nginx-build-deploy.yml\` workflow" >> $GITHUB_STEP_SUMMARY
+            echo "2. Build/Deploy API: Push to vritti-api-nexus main branch" >> $GITHUB_STEP_SUMMARY
+            echo "3. Build/Deploy Web: Push to vritti-web-nexus main branch" >> $GITHUB_STEP_SUMMARY
           fi
 
-  deploy-nginx:
-    name: Deploy Nginx
+  start-services:
+    name: Start Services
     needs: setup
     if: ${{ inputs.deploy_services }}
-    uses: ./.github/workflows/nginx-build-deploy.yml
-    secrets: inherit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Start Docker services
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SERVER_VM_HOST }}
+          username: ${{ secrets.SERVER_VM_USER }}
+          key: ${{ secrets.SERVER_VM_SSH_KEY }}
+          script: |
+            echo "Starting services with docker-compose..."
+            cd /opt/vritti
+            docker compose pull
+            docker compose up -d
+            echo ""
+            echo "Services started successfully!"
+            docker compose ps
 
   verify:
     name: Verify Deployment
@@ -310,7 +323,7 @@ jobs:
       - name: Run verification checks
         uses: appleboy/ssh-action@v1.0.0
         with:
-          host: ${{ inputs.vm_host }}
+          host: ${{ secrets.SERVER_VM_HOST }}
           username: ${{ secrets.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
           script: |
