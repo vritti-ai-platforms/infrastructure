@@ -129,7 +129,7 @@ jobs:
 
             # Update service with new image
             echo " Updating service..."
-            docker compose -f ${{ inputs.compose_file }} up -d ${{ inputs.service_name }}
+            docker compose -f ${{ inputs.compose_file }} up -d --no-deps ${{ inputs.service_name }}
 
             # Wait for container to be healthy
             echo "⏳ Waiting for container to be healthy..."
