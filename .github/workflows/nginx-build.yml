@@ -1,30 +1,42 @@
-name: Build Backend Image
+name: Build Nginx Image
 
 on:
-  workflow_call:
+  workflow_dispatch:
     inputs:
-      service_name:
-        description: 'Name of the service (e.g., vritti-api-nexus)'
-        required: true
-        type: string
-      dockerfile_path:
-        description: 'Path to Dockerfile (default: ./Dockerfile)'
+      image_name:
+        description: 'Name of the image (e.g., vritti-nginx)'
         required: false
         type: string
-        default: './Dockerfile'
+        default: 'vritti-nginx'
+      dockerfile_path:
+        description: 'Path to Dockerfile'
+        required: false
+        type: string
+        default: './nginx/Dockerfile'
       build_context:
         description: 'Docker build context path'
         required: false
         type: string
-        default: '.'
-      node_version:
-        description: 'Node.js version'
+        default: './nginx'
+  workflow_call:
+    inputs:
+      image_name:
+        description: 'Name of the image (e.g., vritti-nginx)'
+        required: true
+        type: string
+      dockerfile_path:
+        description: 'Path to Dockerfile (default: ./nginx/Dockerfile)'
         required: false
         type: string
-        default: '20'
+        default: './nginx/Dockerfile'
+      build_context:
+        description: 'Docker build context path'
+        required: false
+        type: string
+        default: './nginx'
     outputs:
       image_tag:
-        description: 'The full image tag that was pushed'
+        description: 'The full image tag that was pushed (multiline)'
         value: ${{ jobs.build.outputs.image_tag }}
       image_digest:
         description: 'The image digest'
@@ -37,35 +49,8 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  lint-and-test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: latest
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ inputs.node_version }}
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run linter
-        run: pnpm lint || true
-
-      - name: Run tests
-        run: pnpm test || true
-
   build:
     runs-on: ubuntu-latest
-    needs: lint-and-test
     permissions:
       contents: read
       packages: write
@@ -97,7 +82,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ inputs.service_name }}
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ inputs.image_name }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=,format=short
@@ -118,10 +103,9 @@ jobs:
 
       - name: Generate build summary
         run: |
-          echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## [NGINX] Docker Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Service:** \`${{ inputs.service_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** \`${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ inputs.service_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ inputs.image_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
@@ -132,5 +116,5 @@ jobs:
             echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
           else
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "⚠️ Image was **not pushed** (PR build)" >> $GITHUB_STEP_SUMMARY
+            echo "[WARNING] Image was **not pushed** (PR build)" >> $GITHUB_STEP_SUMMARY
           fi

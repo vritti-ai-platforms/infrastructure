@@ -1,36 +1,44 @@
 # Infrastructure
 
-Centralized infrastructure configuration for Vritti platform deployment.
+Centralized infrastructure configuration for Vritti platform deployment with fully containerized architecture.
 
 ## Repository Structure
 
 ```
 infrastructure/
-├── .github/workflows/           # Reusable GitHub Actions workflows
-│   ├── build-backend-image.yml # Build NestJS API services
-│   ├── build-web.yml           # Build web apps (container & MF)
-│   ├── deploy-backend-image.yml # Deploy Docker services
-│   └── deploy-web-build.yml    # Deploy static web builds
+├── .github/workflows/           # GitHub Actions workflows
+│   ├── reusable-build-backend-image.yml # Reusable: Build NestJS API services
+│   ├── reusable-build-web.yml           # Reusable: Build web apps (container & MF)
+│   ├── reusable-deploy-backend-image.yml # Reusable: Deploy Docker services
+│   ├── reusable-deploy-web-build.yml    # Reusable: Deploy static web builds
+│   ├── nginx-build.yml                  # Nginx: Build nginx Docker image
+│   ├── nginx-deploy.yml                 # Nginx: Deploy nginx container
+│   ├── nginx-build-deploy.yml           # Nginx: Build and deploy nginx
+│   ├── vm-setup.yml                     # VM: Automated VM setup
+│   └── vm-verify.yml                    # VM: Configuration verification
 ├── docker/
 │   ├── docker-compose.yml      # Production compose file
 │   └── .env.example            # Environment template
 ├── dockerfiles/
-│   └── Dockerfile.api          # NestJS API services
+│   └── Dockerfile.api          # NestJS API services (reference)
 ├── nginx/
-│   └── sites-available/        # Nginx site configurations
+│   ├── Dockerfile              # Nginx container image
+│   ├── nginx.conf              # Main Nginx configuration
+│   └── conf.d/                 # Server configurations
+│       └── default.conf        # Default server config
 └── server-vm/
-    └── scripts/                # Server setup scripts
+    └── scripts/                # Server setup scripts (idempotent)
 ```
 
 ## Reusable Workflows
 
-### build-backend-image.yml
+### reusable-build-backend-image.yml
 Builds and pushes NestJS API services to GHCR.
 
 ```yaml
 jobs:
   build:
-    uses: vritti-ai-platforms/infrastructure/.github/workflows/build-backend-image.yml@main
+    uses: vritti-ai-platforms/infrastructure/.github/workflows/reusable-build-backend-image.yml@main
     with:
       service_name: vritti-api-nexus
     secrets: inherit
@@ -49,14 +57,14 @@ jobs:
 - `image_digest` - Image digest
 - `short_sha` - Short commit SHA
 
-### build-web.yml
+### reusable-build-web.yml
 Unified workflow for building web applications - both Module Federation hosts (containers) and remotes (microfrontends).
 
 #### Container App Example (vritti-web-nexus)
 ```yaml
 jobs:
   build:
-    uses: vritti-ai-platforms/infrastructure/.github/workflows/build-web.yml@main
+    uses: vritti-ai-platforms/infrastructure/.github/workflows/reusable-build-web.yml@main
     with:
       app_type: container
       app_name: vritti-web-nexus
@@ -71,7 +79,7 @@ jobs:
 ```yaml
 jobs:
   build:
-    uses: vritti-ai-platforms/infrastructure/.github/workflows/build-web.yml@main
+    uses: vritti-ai-platforms/infrastructure/.github/workflows/reusable-build-web.yml@main
     with:
       app_type: microfrontend
       app_name: vritti-auth
@@ -102,13 +110,13 @@ jobs:
 - **Container apps**: Verifies `index.html` exists, can merge microfrontend artifacts
 - **Microfrontend apps**: Checks for `mf-manifest.json` (informational), standalone build
 
-### deploy-backend-image.yml
+### reusable-deploy-backend-image.yml
 Deploys Docker services to the server VM.
 
 ```yaml
 jobs:
   deploy:
-    uses: vritti-ai-platforms/infrastructure/.github/workflows/deploy-backend-image.yml@main
+    uses: vritti-ai-platforms/infrastructure/.github/workflows/reusable-deploy-backend-image.yml@main
     with:
       service_name: vritti-api
       image_tag: ghcr.io/org/vritti-api-nexus:abc123
@@ -120,13 +128,13 @@ jobs:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
 ```
 
-### deploy-web-build.yml
+### reusable-deploy-web-build.yml
 Deploys static web builds to the server.
 
 ```yaml
 jobs:
   deploy:
-    uses: vritti-ai-platforms/infrastructure/.github/workflows/deploy-web-build.yml@main
+    uses: vritti-ai-platforms/infrastructure/.github/workflows/reusable-deploy-web-build.yml@main
     with:
       artifact_name: vritti-web-nexus-abc123
       deploy_path: /opt/vritti/www
@@ -155,55 +163,238 @@ Configure these in each repository that uses the reusable workflows:
 | `APP_DOMAIN` | Application domain (e.g., `cloud.vrittiai.com`) |
 | `RUN_MIGRATIONS` | Set to `true` to run DB migrations after deploy |
 
-## Server Setup
+## Containerized Architecture
 
-### 1. Install Docker
+### Key Features
+- **Fully Dockerized**: Nginx and all services run in Docker containers
+- **Wildcard Subdomains**: Supports `*.vrittiai.com` (any subdomain)
+- **Internal Networking**: API not exposed to host, only accessible via Nginx
+- **Automated Deployment**: GitHub Actions workflows for complete automation
+- **Idempotent Scripts**: Safe to run setup scripts multiple times
+
+### Container Stack
+```
+nginx-proxy (ports 80, 443)
+  ├── Serves static files from /opt/vritti/www
+  ├── SSL termination (wildcard cert for *.vrittiai.com)
+  └── Reverse proxy to vritti-api:3000 (internal network)
+
+vritti-api (port 3000, internal only)
+  └── NestJS backend service
+```
+
+## Automated Server Setup
+
+### Option 1: Automated Setup (Recommended)
+
+Use the GitHub Actions workflow for fully automated setup:
+
+1. **Configure GitHub Secrets** (in infrastructure repository):
+   ```
+   SERVER_VM_HOST=<vm-ip-or-hostname>
+   SERVER_VM_USER=ubuntu
+   SERVER_VM_SSH_KEY=<private-ssh-key>
+   PRIMARY_DB_HOST=<database-host>
+   PRIMARY_DB_USERNAME=<database-user>
+   PRIMARY_DB_PASSWORD=<database-password>
+   JWT_SECRET=<jwt-secret>
+   COOKIE_SECRET=<cookie-secret>
+   ... (see Required GitHub Secrets section)
+   ```
+
+2. **Run Setup Workflow**:
+   - Go to Actions → Setup Server VM
+   - Click "Run workflow"
+   - Enter VM host (IP or hostname)
+   - Optionally skip Docker install if already present
+   - Choose whether to deploy services after setup
+
+3. **What Gets Automated**:
+   - ✅ Docker Engine installation
+   - ✅ Deploy user configuration
+   - ✅ Directory structure creation
+   - ✅ docker-compose.yml deployment
+   - ✅ Environment variables (.env file)
+   - ✅ Optionally: Nginx and API deployment
+
+4. **Verify Setup**:
+   ```bash
+   # Manually run verification, or use workflow
+   # Actions → Verify VM Setup → Run workflow
+   ```
+
+### Option 2: Manual Setup (Legacy)
+
+For manual setup or troubleshooting:
+
+#### 1. Install Docker
 ```bash
 scp server-vm/scripts/install-docker.sh root@<server-ip>:/tmp/
-ssh root@<server-ip> 'bash /tmp/install-docker.sh'
+ssh root@<server-ip> 'sudo bash /tmp/install-docker.sh'
 ```
 
-### 2. Setup Deploy User
+#### 2. Setup Deploy User
 ```bash
 scp server-vm/scripts/setup-deploy-user.sh root@<server-ip>:/tmp/
-ssh root@<server-ip> 'bash /tmp/setup-deploy-user.sh'
+ssh root@<server-ip> 'sudo bash /tmp/setup-deploy-user.sh'
 ```
 
-### 3. Generate SSH Key for CI/CD
+#### 3. Generate SSH Key for CI/CD
 ```bash
 ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/vritti-deploy -N ""
-cat ~/.ssh/vritti-deploy.pub | ssh root@<server-ip> 'cat >> /home/deploy/.ssh/authorized_keys'
+cat ~/.ssh/vritti-deploy.pub | ssh ubuntu@<server-ip> 'cat >> ~/.ssh/authorized_keys'
 # Add ~/.ssh/vritti-deploy contents to GitHub Secret: SERVER_VM_SSH_KEY
 ```
 
-### 4. Setup Nginx
+#### 4. Upload SSL Certificates
 ```bash
-scp server-vm/scripts/setup-nginx.sh root@<server-ip>:/tmp/
-scp nginx/sites-available/cloud.vrittiai.com.conf root@<server-ip>:/etc/nginx/sites-available/
-ssh root@<server-ip> 'bash /tmp/setup-nginx.sh'
+# Upload wildcard certificate for *.vrittiai.com
+scp vrittiai.com.crt ubuntu@<server-ip>:/opt/vritti/ssl/
+scp vrittiai.com.key ubuntu@<server-ip>:/opt/vritti/ssl/
 ```
 
-### 5. Deploy Docker Compose
+#### 5. Deploy Docker Compose
 ```bash
-scp docker/docker-compose.yml docker/.env deploy@<server-ip>:/opt/vritti/
-ssh deploy@<server-ip> 'cd /opt/vritti && docker compose up -d'
+scp docker/docker-compose.yml ubuntu@<server-ip>:/opt/vritti/
+# Create .env file manually or use vm-setup workflow
+ssh ubuntu@<server-ip> 'cd /opt/vritti && docker compose up -d'
+```
+
+## Nginx Deployment
+
+### Automated (Recommended)
+Nginx configuration changes trigger automatic deployment:
+- Edit files in `nginx/` directory
+- Commit and push to main branch
+- Workflow automatically builds, pushes, and deploys new image
+
+### Manual
+```bash
+# Build image
+cd infrastructure/nginx
+docker build -t ghcr.io/org/vritti-nginx:latest .
+
+# Push to registry
+docker push ghcr.io/org/vritti-nginx:latest
+
+# Deploy on server
+ssh ubuntu@<server-ip> 'cd /opt/vritti && docker compose pull nginx-proxy && docker compose up -d nginx-proxy'
 ```
 
 ## Architecture
 
+### System Overview
+
 ```
 Server VM (2 CPU, 4GB)              DB VM (2 CPU, 1GB)
 ┌──────────────────────────┐       ┌──────────────────────────┐
-│ Docker Compose           │       │ PostgreSQL 17 (native)   │
-│ └─ vritti-api-nexus     │───────│ - Tuned for 1GB RAM      │
-│                          │ :5432 │                          │
-│ Nginx                    │       │ Backup Service → R2      │
-│ - /api/* → backend      │       │                          │
-│ - /* → static files     │       └──────────────────────────┘
+│ Docker Compose Stack     │       │ PostgreSQL 17 (native)   │
+│                          │       │ - Tuned for 1GB RAM      │
+│ ┌────────────────────┐   │       │                          │
+│ │ nginx-proxy        │   │       │ Backup Service → R2      │
+│ │ - Ports: 80, 443   │   │       │                          │
+│ │ - Static files     │   │       └──────────────────────────┘
+│ │ - SSL termination  │   │                 ▲
+│ └────────┬───────────┘   │                 │
+│          │ internal      │                 │ :5432
+│          │ network       │                 │
+│          ▼               │                 │
+│ ┌────────────────────┐   │                 │
+│ │ vritti-api         │───┼─────────────────┘
+│ │ - Port: 3000       │   │
+│ │ - Internal only    │   │
+│ └────────────────────┘   │
 └──────────────────────────┘
          │
          ▼
 ┌──────────────────────────┐
 │ Cloudflare (DNS/CDN)     │
+│ *.vrittiai.com           │
 └──────────────────────────┘
 ```
+
+### Wildcard Subdomain Support
+
+The infrastructure supports **any subdomain** under `*.vrittiai.com`:
+- `cloud.vrittiai.com` - Main application
+- `auth.vrittiai.com` - Authentication microfrontend
+- `admin.vrittiai.com` - Admin panel
+- Any other subdomain you create
+
+**How it works:**
+- Wildcard SSL certificate for `*.vrittiai.com`
+- Nginx `server_name *.vrittiai.com vrittiai.com;`
+- Dynamic CORS headers: `Access-Control-Allow-Origin: https://$host`
+- Credentials enabled for cross-subdomain authentication
+
+### Container Stack
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ nginx-proxy (ports 80, 443)                             │
+│ ├── Volume: /opt/vritti/www → /usr/share/nginx/html:ro │
+│ ├── Volume: /opt/vritti/ssl → /etc/nginx/ssl:ro        │
+│ ├── Volume: /opt/vritti/logs/nginx → /var/log/nginx    │
+│ ├── Serves static files (Module Federation apps)        │
+│ ├── SSL termination (wildcard cert *.vrittiai.com)     │
+│ └── Reverse proxy to vritti-api:3000 (internal network)│
+└─────────────────────────────────────────────────────────┘
+                            │
+                            ▼ (Docker internal network)
+┌─────────────────────────────────────────────────────────┐
+│ vritti-api (port 3000, internal only)                   │
+│ ├── Volume: /opt/vritti/logs/api → /app/logs           │
+│ ├── NOT exposed to host (no port mapping)              │
+│ ├── Only accessible via nginx-proxy                     │
+│ └── NestJS backend service                              │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Request Flow
+
+```
+User (any subdomain)
+    │
+    ▼
+https://*.vrittiai.com
+    │
+    ▼
+Cloudflare (DNS/CDN, DDoS protection)
+    │
+    ▼
+Server VM (210.79.129.244)
+    │
+    ├─→ Port 80 (HTTP) ──→ nginx-proxy:80
+    │                      └─→ 301 Redirect to HTTPS
+    │
+    └─→ Port 443 (HTTPS) ─→ nginx-proxy:443
+            │
+            ├─→ / ────────────────────→ Static files (/usr/share/nginx/html/)
+            │                           Serves: vritti-web-nexus (container)
+            │
+            ├─→ /vritti-auth/* ───────→ Static files (/usr/share/nginx/html/vritti-auth/)
+            │                           Serves: vritti-auth (microfrontend)
+            │
+            ├─→ /api/* ───────────────→ Reverse proxy to http://vritti-api:3000
+            │                           (Docker internal network)
+            │                           Path rewrite: /api/users → /users
+            │
+            ├─→ /static/* ────────────→ Static assets (cached 1 year, CORS enabled)
+            │
+            ├─→ /mf-manifest.json ────→ Module Federation manifest (cached 5 min)
+            │
+            ├─→ /health ──────────────→ Proxy to vritti-api:3000/health
+            │
+            └─→ /** ──────────────────→ SPA fallback (serves index.html)
+                                        For client-side routing
+```
+
+### Key Features
+
+- **Fully Dockerized**: All services run in containers, no native installations
+- **Wildcard Subdomains**: Supports any subdomain under `*.vrittiai.com`
+- **Internal Networking**: API not exposed to host, only accessible via Nginx
+- **Automated Deployment**: Configuration changes trigger automatic rebuilds
+- **Zero-Downtime Updates**: Rolling updates via Docker Compose
+- **Health Checks**: Built-in health monitoring for all containers
+- **Secure by Default**: SSL/TLS only, secure file permissions, credential-based CORS

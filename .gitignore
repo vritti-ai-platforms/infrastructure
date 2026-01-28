@@ -16,7 +16,6 @@ secrets/
 
 # Build artifacts
 dist/
-build/
 node_modules/
 
 # Backup files

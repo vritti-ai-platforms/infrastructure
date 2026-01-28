@@ -1,12 +1,43 @@
 version: '3.8'
 
 services:
+  # Nginx Reverse Proxy & Static File Server
+  nginx-proxy:
+    image: ghcr.io/${GITHUB_ORG:-yourorg}/vritti-nginx:latest
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Static files (read-only)
+      - /opt/vritti/www:/usr/share/nginx/html:ro
+      # SSL certificates (read-only)
+      - /opt/vritti/ssl:/etc/nginx/ssl:ro
+      # Logs (read-write)
+      - /opt/vritti/logs/nginx:/var/log/nginx
+      # Let's Encrypt challenge directory
+      - /var/www/letsencrypt:/var/www/letsencrypt:ro
+    depends_on:
+      vritti-api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - vritti-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # API Service
   vritti-api:
     image: ghcr.io/${GITHUB_ORG:-yourorg}/vritti-api-nexus:${API_VERSION:-latest}
     container_name: vritti-api
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:3000:3000"
+    # NO PORT EXPOSURE - only accessible via internal Docker network
+    expose:
+      - "3000"
     environment:
       # Runtime settings
       - NODE_ENV=production

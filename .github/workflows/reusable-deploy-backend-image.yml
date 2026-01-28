@@ -93,18 +93,18 @@ jobs:
           script: |
             set -e
 
-            echo "🚀 Deploying ${{ inputs.service_name }}..."
+            echo "[DEPLOY] Deploying ${{ inputs.service_name }}..."
             cd ${{ inputs.working_dir }}
 
             # Login to GHCR
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
             # Pull the specific image
-            echo "📥 Pulling image: ${{ inputs.image_tag }}"
+            echo " Pulling image: ${{ inputs.image_tag }}"
             docker pull ${{ inputs.image_tag }}
 
             # Export environment variables for docker compose
-            echo "🔧 Setting environment variables..."
+            echo "[CONFIG] Setting environment variables..."
             export PRIMARY_DB_HOST="${{ secrets.PRIMARY_DB_HOST }}"
             export PRIMARY_DB_PORT="${{ vars.PRIMARY_DB_PORT || '5432' }}"
             export PRIMARY_DB_USERNAME="${{ secrets.PRIMARY_DB_USERNAME }}"
@@ -123,7 +123,7 @@ jobs:
             export SMS_PROVIDER_API_KEY="${{ secrets.SMS_PROVIDER_API_KEY }}"
 
             # Update service with new image
-            echo "🔄 Updating service..."
+            echo " Updating service..."
             docker compose -f ${{ inputs.compose_file }} up -d ${{ inputs.service_name }}
 
             # Wait for container to be healthy
@@ -131,23 +131,23 @@ jobs:
             sleep 15
 
             # Verify container is running
-            echo "✅ Container status:"
+            echo "[OK] Container status:"
             docker compose -f ${{ inputs.compose_file }} ps ${{ inputs.service_name }}
 
             # Show recent logs
-            echo "📋 Recent logs:"
+            echo " Recent logs:"
             docker compose -f ${{ inputs.compose_file }} logs --tail=20 ${{ inputs.service_name }}
 
             # Cleanup old images
-            echo "🧹 Cleaning up old images..."
+            echo "[CLEANUP] Cleaning up old images..."
             docker image prune -f
 
-            echo "✅ Deployment complete!"
+            echo "[OK] Deployment complete!"
 
       - name: Health check
         if: inputs.health_check_url != ''
         run: |
-          echo "🏥 Running health check..."
+          echo " Running health check..."
           sleep 10
 
           max_attempts=5
@@ -156,7 +156,7 @@ jobs:
           while [ $attempt -le $max_attempts ]; do
             echo "Attempt $attempt of $max_attempts..."
             if curl -sf "${{ inputs.health_check_url }}" > /dev/null; then
-              echo "✅ Health check passed!"
+              echo "[OK] Health check passed!"
               exit 0
             fi
             echo "⏳ Health check failed, retrying in 10s..."
@@ -164,19 +164,19 @@ jobs:
             attempt=$((attempt + 1))
           done
 
-          echo "❌ Health check failed after $max_attempts attempts"
+          echo "[ERROR] Health check failed after $max_attempts attempts"
           exit 1
 
       - name: Generate deployment summary
         run: |
-          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## [DEPLOY] Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Service:** \`${{ inputs.service_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** \`${{ inputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Server:** \`${{ secrets.SERVER_VM_HOST }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ inputs.health_check_url }}" != "" ]; then
-            echo "**Health Check:** ✅ Passed" >> $GITHUB_STEP_SUMMARY
+            echo "**Health Check:** [OK] Passed" >> $GITHUB_STEP_SUMMARY
           fi
 
   run-migrations:
@@ -210,6 +210,6 @@ jobs:
 
       - name: Migration summary
         run: |
-          echo "## 🗄️ Database Migrations" >> $GITHUB_STEP_SUMMARY
+          echo "## Database Migrations" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Migrations completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "[OK] Migrations completed successfully" >> $GITHUB_STEP_SUMMARY

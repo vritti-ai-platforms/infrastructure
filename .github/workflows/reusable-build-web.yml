@@ -95,7 +95,7 @@ jobs:
       - name: Verify build output
         run: |
           if [ ! -d "${{ inputs.output_dir }}" ]; then
-            echo "❌ Build output directory not found: ${{ inputs.output_dir }}"
+            echo "[ERROR] Build output directory not found: ${{ inputs.output_dir }}"
             exit 1
           fi
 
@@ -103,31 +103,31 @@ jobs:
           if [ "${{ inputs.app_type }}" = "container" ]; then
             # Container apps MUST have index.html
             if [ ! -f "${{ inputs.output_dir }}/index.html" ]; then
-              echo "❌ index.html not found in build output (required for container apps)"
+              echo "[ERROR] index.html not found in build output (required for container apps)"
               exit 1
             fi
-            echo "✅ Web container build verified (index.html found)"
+            echo "[OK] Web container build verified (index.html found)"
           elif [ "${{ inputs.app_type }}" = "microfrontend" ]; then
             # Microfrontends should have mf-manifest.json (informational)
             if [ -f "${{ inputs.output_dir }}/mf-manifest.json" ]; then
-              echo "✅ Module Federation manifest found"
+              echo "[OK] Module Federation manifest found"
               cat "${{ inputs.output_dir }}/mf-manifest.json"
             else
-              echo "⚠️  No mf-manifest.json found (optional for microfrontends)"
+              echo "[WARNING]  No mf-manifest.json found (optional for microfrontends)"
             fi
 
             # Check for index.html (some MFs may have it)
             if [ -f "${{ inputs.output_dir }}/index.html" ]; then
-              echo "✅ index.html found"
+              echo "[OK] index.html found"
             fi
 
-            echo "✅ Microfrontend build verified"
+            echo "[OK] Microfrontend build verified"
           else
-            echo "❌ Invalid app_type: ${{ inputs.app_type }} (must be 'container' or 'microfrontend')"
+            echo "[ERROR] Invalid app_type: ${{ inputs.app_type }} (must be 'container' or 'microfrontend')"
             exit 1
           fi
 
-          echo "📁 Build output contents:"
+          echo "[DIR] Build output contents:"
           ls -la "${{ inputs.output_dir }}/"
 
       - name: Download microfrontend artifacts
@@ -139,7 +139,7 @@ jobs:
       - name: Merge microfrontend assets
         if: inputs.app_type == 'container' && inputs.microfrontend_artifacts != '[]'
         run: |
-          echo "🔄 Merging microfrontend assets..."
+          echo " Merging microfrontend assets..."
 
           # Create static directories if they don't exist
           mkdir -p "${{ inputs.output_dir }}/static"/{css,js,image}
@@ -166,10 +166,10 @@ jobs:
 
           # Update manifest URLs for production
           if [ -f "${{ inputs.output_dir }}/mf-manifest.json" ]; then
-            echo "🔧 Updating manifest URLs for production..."
+            echo "[CONFIG] Updating manifest URLs for production..."
             sed -i "s|http://local\.vrittiai\.com:[0-9]*|${{ inputs.production_domain }}|g" "${{ inputs.output_dir }}/mf-manifest.json"
             sed -i "s|https://local\.vrittiai\.com:[0-9]*|${{ inputs.production_domain }}|g" "${{ inputs.output_dir }}/mf-manifest.json"
-            echo "📄 Updated manifest:"
+            echo "[FILE] Updated manifest:"
             cat "${{ inputs.output_dir }}/mf-manifest.json"
           fi
 
@@ -184,10 +184,10 @@ jobs:
         run: |
           # Set emoji based on app type
           if [ "${{ inputs.app_type }}" = "container" ]; then
-            EMOJI="🌐"
+            EMOJI="[NETWORK]"
             TYPE_LABEL="Web Container (MF Host)"
           else
-            EMOJI="📦"
+            EMOJI="[PACKAGE]"
             TYPE_LABEL="Microfrontend (MF Remote)"
           fi
 
