@@ -89,7 +89,8 @@ done
 log_info "Setting ownership and permissions..."
 chown -R "$DEPLOY_USER:$DEPLOY_USER" "$VRITTI_DIR"
 chmod 755 "$VRITTI_DIR"
-chmod 700 "$VRITTI_DIR/ssl"  # Secure SSL directory
+chmod 755 "$VRITTI_DIR/ssl"  # Allow nginx container to read SSL certificates
+chmod 777 "$VRITTI_DIR/logs/nginx"  # Allow nginx container to write logs
 log_success "Ownership and permissions set"
 
 # Create placeholder index.html if it doesn't exist

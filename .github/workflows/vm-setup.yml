@@ -189,7 +189,7 @@ jobs:
             sudo cp /etc/letsencrypt/live/vrittiai.com/privkey.pem /opt/vritti/ssl/vrittiai.com.key
             sudo chown ubuntu:ubuntu /opt/vritti/ssl/vrittiai.com.*
             sudo chmod 644 /opt/vritti/ssl/vrittiai.com.crt
-            sudo chmod 600 /opt/vritti/ssl/vrittiai.com.key
+            sudo chmod 644 /opt/vritti/ssl/vrittiai.com.key
 
             echo "SUCCESS: Let's Encrypt SSL certificates generated and installed"
             echo ""
@@ -200,7 +200,7 @@ jobs:
             echo "Setting up automatic certificate renewal..."
             sudo bash -c 'cat > /etc/cron.d/certbot-renew <<EOF
             # Renew Let'\''s Encrypt certificates twice daily at 3am and 3pm
-            0 3,15 * * * root certbot renew --quiet --deploy-hook "cp /etc/letsencrypt/live/vrittiai.com/fullchain.pem /opt/vritti/ssl/vrittiai.com.crt && cp /etc/letsencrypt/live/vrittiai.com/privkey.pem /opt/vritti/ssl/vrittiai.com.key && chown ubuntu:ubuntu /opt/vritti/ssl/vrittiai.com.* && chmod 644 /opt/vritti/ssl/vrittiai.com.crt && chmod 600 /opt/vritti/ssl/vrittiai.com.key && docker exec nginx nginx -s reload 2>/dev/null || true"
+            0 3,15 * * * root certbot renew --quiet --deploy-hook "cp /etc/letsencrypt/live/vrittiai.com/fullchain.pem /opt/vritti/ssl/vrittiai.com.crt && cp /etc/letsencrypt/live/vrittiai.com/privkey.pem /opt/vritti/ssl/vrittiai.com.key && chown ubuntu:ubuntu /opt/vritti/ssl/vrittiai.com.* && chmod 644 /opt/vritti/ssl/vrittiai.com.crt && chmod 644 /opt/vritti/ssl/vrittiai.com.key && docker exec nginx nginx -s reload 2>/dev/null || true"
             EOF'
 
             echo "SUCCESS: Automatic certificate renewal configured (runs twice daily)"
@@ -251,7 +251,7 @@ jobs:
             PRIMARY_DB_PASSWORD=${PRIMARY_DB_PASSWORD}
             PRIMARY_DB_DATABASE=${PRIMARY_DB_DATABASE:-saas_db}
             PRIMARY_DB_SCHEMA=${PRIMARY_DB_SCHEMA:-cloud}
-            PRIMARY_DB_SSL_MODE=require
+            PRIMARY_DB_SSL_MODE=disable
 
             # Security Secrets
             JWT_SECRET=${JWT_SECRET}
