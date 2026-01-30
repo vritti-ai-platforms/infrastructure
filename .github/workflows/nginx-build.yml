@@ -66,7 +66,18 @@ jobs:
 
       - name: Set variables
         id: vars
-        run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: |
+          BRANCH_NAME=${GITHUB_REF_NAME}
+          RUN_NUMBER=${{ github.run_number }}
+
+          # Calculate version: 1.0, 1.1, 1.2, etc.
+          MAJOR=1
+          MINOR=$((RUN_NUMBER - 1))
+          VERSION="${MAJOR}.${MINOR}-${BRANCH_NAME}"
+
+          echo "branch=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -84,10 +95,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ inputs.service_name }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=,format=short
-            type=ref,event=branch
-            type=ref,event=pr
+            type=raw,value=${{ steps.vars.outputs.version }}
+            type=raw,value=latest-${{ steps.vars.outputs.branch }}
 
       - name: Build and push Docker image
         id: build
