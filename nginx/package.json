@@ -1,0 +1,5 @@
+{
+	"name": "nginx-proxy",
+	"version": "0.0.1",
+	"description": "Nginx reverse proxy for Vritti"
+}

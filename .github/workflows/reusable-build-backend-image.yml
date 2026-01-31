@@ -83,15 +83,13 @@ jobs:
         id: vars
         run: |
           BRANCH_NAME=${GITHUB_REF_NAME}
-          RUN_NUMBER=${{ github.run_number }}
 
-          # Calculate version: 1.0, 1.1, 1.2, etc.
-          MAJOR=1
-          MINOR=$((RUN_NUMBER - 1))
-          VERSION="${MAJOR}.${MINOR}-${BRANCH_NAME}"
+          # Read version from package.json
+          VERSION=$(node -p "require('./package.json').version")
+          VERSION_TAG="${VERSION}-${BRANCH_NAME}"
 
           echo "branch=${BRANCH_NAME}" >> $GITHUB_OUTPUT
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION_TAG}" >> $GITHUB_OUTPUT
           echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
