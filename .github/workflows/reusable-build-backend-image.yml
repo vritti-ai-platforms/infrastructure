@@ -27,16 +27,6 @@ on:
         required: false
         type: string
         default: './package.json'
-      platforms:
-        description: 'Target platforms (default: linux/amd64)'
-        required: false
-        type: string
-        default: 'linux/amd64'
-      build_args:
-        description: 'Docker build arguments (multiline string)'
-        required: false
-        type: string
-        default: ''
       skip_lint_test:
         description: 'Skip lint and test job'
         required: false
@@ -142,8 +132,6 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: ${{ inputs.platforms }}
-          build-args: ${{ inputs.build_args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
