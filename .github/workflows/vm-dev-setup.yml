@@ -33,19 +33,18 @@ jobs:
           fi
           echo "SUCCESS: VM host format is valid"
 
-      - name: Install cloudflared
+      - name: Install cloudflared and setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_VM_SSH_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Installing cloudflared..."
           curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
           sudo dpkg -i cloudflared.deb
           rm cloudflared.deb
           cloudflared --version
-          echo "SUCCESS: cloudflared installed"
 
-      - name: Setup SSH with Cloudflare Access
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SERVER_VM_SSH_KEY }}
-        run: |
           echo "Configuring SSH with Cloudflare Access proxy..."
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -54,10 +53,19 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-          # Create SSH config with cloudflared ProxyCommand
+          # Create wrapper script with embedded credentials
+          cat > ~/.ssh/cloudflared-proxy.sh << EOF
+          #!/bin/bash
+          export CF_ACCESS_CLIENT_ID="$CF_ACCESS_CLIENT_ID"
+          export CF_ACCESS_CLIENT_SECRET="$CF_ACCESS_CLIENT_SECRET"
+          exec cloudflared access ssh --hostname \$1
+          EOF
+          chmod 700 ~/.ssh/cloudflared-proxy.sh
+
+          # Create SSH config using wrapper
           cat > ~/.ssh/config << EOF
-          Host ${{ secrets.SERVER_VM_HOST }}
-            ProxyCommand cloudflared access ssh --hostname %h
+          Host *
+            ProxyCommand ~/.ssh/cloudflared-proxy.sh %h
             StrictHostKeyChecking no
             UserKnownHostsFile /dev/null
             IdentityFile ~/.ssh/id_rsa
@@ -67,9 +75,6 @@ jobs:
           echo "SUCCESS: SSH configured with Cloudflare Access proxy"
 
       - name: Test SSH connectivity
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Testing SSH connectivity via Cloudflare Access..."
           ssh ${{ secrets.SERVER_VM_USER }}@${{ secrets.SERVER_VM_HOST }} << 'ENDSSH'
@@ -81,9 +86,6 @@ jobs:
           ENDSSH
 
       - name: Copy setup scripts to VM
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Creating target directory on VM..."
           ssh ${{ secrets.SERVER_VM_USER }}@${{ secrets.SERVER_VM_HOST }} "mkdir -p /tmp/vm-setup/"
@@ -95,25 +97,16 @@ jobs:
 
       - name: Install Docker
         if: ${{ !inputs.skip_docker }}
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Installing Docker..."
           ssh ${{ secrets.SERVER_VM_USER }}@${{ secrets.SERVER_VM_HOST }} "sudo bash /tmp/vm-setup/install-docker.sh"
 
       - name: Setup deploy user and directories
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Setting up deploy user..."
           ssh ${{ secrets.SERVER_VM_USER }}@${{ secrets.SERVER_VM_HOST }} "sudo bash /tmp/vm-setup/setup-deploy-user.sh"
 
       - name: Copy docker-compose.yml
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Copying docker-compose.yml to VM..."
           scp docker/docker-compose.yml ${{ secrets.SERVER_VM_USER }}@${{ secrets.SERVER_VM_HOST }}:/opt/vritti/docker-compose.yml
@@ -121,8 +114,6 @@ jobs:
 
       - name: Create .env file
         env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           GITHUB_ORG: ${{ github.repository_owner }}
           PRIMARY_DB_HOST: ${{ secrets.PRIMARY_DB_HOST }}
           PRIMARY_DB_PORT: ${{ secrets.PRIMARY_DB_PORT }}
@@ -194,9 +185,6 @@ jobs:
           ENDSSH
 
       - name: Verify installation
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Verifying installation..."
           ssh ${{ secrets.SERVER_VM_USER }}@${{ secrets.SERVER_VM_HOST }} << 'ENDSSH'
@@ -220,9 +208,6 @@ jobs:
 
       - name: Cleanup temporary files
         if: always()
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Cleaning up temporary files..."
           ssh ${{ secrets.SERVER_VM_USER }}@${{ secrets.SERVER_VM_HOST }} "rm -rf /tmp/vm-setup/" || true
@@ -260,21 +245,31 @@ jobs:
       name: production
 
     steps:
-      - name: Install cloudflared
+      - name: Install cloudflared and setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_VM_SSH_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
           sudo dpkg -i cloudflared.deb
           rm cloudflared.deb
 
-      - name: Setup SSH with Cloudflare Access
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SERVER_VM_SSH_KEY }}
-        run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+
+          # Create wrapper script with embedded credentials
+          cat > ~/.ssh/cloudflared-proxy.sh << EOF
+          #!/bin/bash
+          export CF_ACCESS_CLIENT_ID="$CF_ACCESS_CLIENT_ID"
+          export CF_ACCESS_CLIENT_SECRET="$CF_ACCESS_CLIENT_SECRET"
+          exec cloudflared access ssh --hostname \$1
+          EOF
+          chmod 700 ~/.ssh/cloudflared-proxy.sh
+
           cat > ~/.ssh/config << EOF
-          Host ${{ secrets.SERVER_VM_HOST }}
-            ProxyCommand cloudflared access ssh --hostname %h
+          Host *
+            ProxyCommand ~/.ssh/cloudflared-proxy.sh %h
             StrictHostKeyChecking no
             UserKnownHostsFile /dev/null
             IdentityFile ~/.ssh/id_rsa
@@ -283,8 +278,6 @@ jobs:
 
       - name: Authenticate with GitHub Container Registry
         env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GITHUB_ORG: ${{ github.repository_owner }}
         run: |
@@ -295,9 +288,6 @@ jobs:
           ENDSSH
 
       - name: Start Docker services
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Starting services with docker-compose..."
           ssh ${{ secrets.SERVER_VM_USER }}@${{ secrets.SERVER_VM_HOST }} << 'ENDSSH'
@@ -318,21 +308,31 @@ jobs:
       name: production
 
     steps:
-      - name: Install cloudflared
+      - name: Install cloudflared and setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_VM_SSH_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
           sudo dpkg -i cloudflared.deb
           rm cloudflared.deb
 
-      - name: Setup SSH with Cloudflare Access
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SERVER_VM_SSH_KEY }}
-        run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+
+          # Create wrapper script with embedded credentials
+          cat > ~/.ssh/cloudflared-proxy.sh << EOF
+          #!/bin/bash
+          export CF_ACCESS_CLIENT_ID="$CF_ACCESS_CLIENT_ID"
+          export CF_ACCESS_CLIENT_SECRET="$CF_ACCESS_CLIENT_SECRET"
+          exec cloudflared access ssh --hostname \$1
+          EOF
+          chmod 700 ~/.ssh/cloudflared-proxy.sh
+
           cat > ~/.ssh/config << EOF
-          Host ${{ secrets.SERVER_VM_HOST }}
-            ProxyCommand cloudflared access ssh --hostname %h
+          Host *
+            ProxyCommand ~/.ssh/cloudflared-proxy.sh %h
             StrictHostKeyChecking no
             UserKnownHostsFile /dev/null
             IdentityFile ~/.ssh/id_rsa
@@ -340,9 +340,6 @@ jobs:
           chmod 600 ~/.ssh/config
 
       - name: Run verification checks
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Running verification checks..."
           ssh ${{ secrets.SERVER_VM_USER }}@${{ secrets.SERVER_VM_HOST }} << 'ENDSSH'
