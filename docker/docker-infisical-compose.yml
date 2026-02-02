@@ -59,6 +59,7 @@ services:
         max-file: "3"
     networks:
       - infisical-network
+      - vritti-network
 
   infisical-redis:
     image: redis:7-alpine
@@ -87,3 +88,5 @@ networks:
   infisical-network:
     name: infisical-network
     driver: bridge
+  vritti-network:
+    external: true
