@@ -36,6 +36,7 @@ services:
   # API Service
   api-nexus:
     image: ghcr.io/${GITHUB_ORG:-yourorg}/api-nexus:${API_VERSION:-latest}
+    platform: linux/amd64
     container_name: api-nexus
     restart: unless-stopped
     # NO PORT EXPOSURE - only accessible via internal Docker network
