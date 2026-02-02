@@ -1,0 +1,89 @@
+# Infisical Secret Manager Docker Compose
+# Deployed via: infisical-deploy.yml workflow
+
+services:
+  infisical:
+    image: ghcr.io/${GITHUB_ORG:-vritti-ai-platforms}/infisical-secret-manager:${INFISICAL_VERSION:-latest-main}
+    container_name: infisical
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      infisical-redis:
+        condition: service_started
+    environment:
+      - NODE_ENV=production
+      # Encryption & Auth
+      - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}
+      - AUTH_SECRET=${INFISICAL_AUTH_SECRET}
+      # Database (external PostgreSQL - reuses existing secrets)
+      - DB_CONNECTION_URI=postgres://${PRIMARY_DB_USERNAME}:${PRIMARY_DB_PASSWORD}@${PRIMARY_DB_HOST}:${PRIMARY_DB_PORT}/${PRIMARY_DB_DATABASE}
+      - POSTGRES_USER=${PRIMARY_DB_USERNAME}
+      - POSTGRES_PASSWORD=${PRIMARY_DB_PASSWORD}
+      - POSTGRES_DB=${PRIMARY_DB_DATABASE}
+      # Redis (internal)
+      - REDIS_URL=redis://infisical-redis:6379
+      # Site URL
+      - SITE_URL=${INFISICAL_SITE_URL}
+      # SMTP (uses existing Brevo if available)
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-}
+      - SMTP_FROM_ADDRESS=${SENDER_EMAIL:-}
+      - SMTP_FROM_NAME=${SENDER_NAME:-Infisical}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      # GitHub App Connection
+      - INF_APP_CONNECTION_GITHUB_APP_CLIENT_ID=${INFISICAL_GITHUB_APP_CLIENT_ID:-}
+      - INF_APP_CONNECTION_GITHUB_APP_CLIENT_SECRET=${INFISICAL_GITHUB_APP_CLIENT_SECRET:-}
+      - INF_APP_CONNECTION_GITHUB_APP_PRIVATE_KEY=${INFISICAL_GITHUB_APP_PRIVATE_KEY:-}
+      - INF_APP_CONNECTION_GITHUB_APP_SLUG=${INFISICAL_GITHUB_APP_SLUG:-}
+      - INF_APP_CONNECTION_GITHUB_APP_ID=${INFISICAL_GITHUB_APP_ID:-}
+      # Telemetry
+      - TELEMETRY_ENABLED=false
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - infisical-network
+
+  infisical-redis:
+    image: redis:7-alpine
+    container_name: infisical-redis
+    restart: unless-stopped
+    volumes:
+      - infisical-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - infisical-network
+
+volumes:
+  infisical-redis-data:
+    driver: local
+
+networks:
+  infisical-network:
+    name: infisical-network
+    driver: bridge

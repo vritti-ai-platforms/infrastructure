@@ -1,0 +1,182 @@
+name: Deploy Infisical
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (default: latest-main)'
+        required: false
+        type: string
+        default: 'latest-main'
+  workflow_call:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy'
+        required: false
+        type: string
+        default: 'latest-main'
+    secrets:
+      # Reuse existing org secrets
+      SERVER_VM_HOST:
+        required: true
+      SERVER_VM_USER:
+        required: true
+      SERVER_VM_SSH_KEY:
+        required: true
+      GHCR_TOKEN:
+        required: true
+      # Reuse existing DB secrets
+      PRIMARY_DB_HOST:
+        required: true
+      PRIMARY_DB_PORT:
+        required: true
+      PRIMARY_DB_USERNAME:
+        required: true
+      PRIMARY_DB_PASSWORD:
+        required: true
+      PRIMARY_DB_DATABASE:
+        required: true
+      PRIMARY_DB_SSL_MODE:
+        required: false
+      # Infisical-specific secrets (NEW - need to add)
+      INFISICAL_ENCRYPTION_KEY:
+        required: true
+      INFISICAL_AUTH_SECRET:
+        required: true
+      INFISICAL_SITE_URL:
+        required: true
+      # Optional - GitHub App connection
+      INFISICAL_GITHUB_APP_CLIENT_ID:
+        required: false
+      INFISICAL_GITHUB_APP_CLIENT_SECRET:
+        required: false
+      INFISICAL_GITHUB_APP_PRIVATE_KEY:
+        required: false
+      INFISICAL_GITHUB_APP_SLUG:
+        required: false
+      INFISICAL_GITHUB_APP_ID:
+        required: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout infrastructure repo
+        uses: actions/checkout@v4
+
+      - name: Deploy Infisical to Server VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_VM_HOST }}
+          username: ${{ secrets.SERVER_VM_USER }}
+          key: ${{ secrets.SERVER_VM_SSH_KEY }}
+          script: |
+            set -e
+
+            echo "[DEPLOY] Deploying Infisical Secret Manager..."
+
+            # Create infisical directory if not exists
+            sudo mkdir -p /opt/infisical
+            cd /opt/infisical
+
+            # Login to GHCR
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull the image
+            IMAGE="ghcr.io/${{ github.repository_owner }}/infisical-secret-manager:${{ inputs.image_tag }}"
+            echo "[PACKAGE] Pulling image: ${IMAGE}"
+            docker pull "${IMAGE}"
+
+            # Export environment variables
+            echo "[CONFIG] Setting environment variables..."
+            export GITHUB_ORG="${{ github.repository_owner }}"
+            export INFISICAL_VERSION="${{ inputs.image_tag }}"
+
+            # Infisical-specific secrets
+            export INFISICAL_ENCRYPTION_KEY="${{ secrets.INFISICAL_ENCRYPTION_KEY }}"
+            export INFISICAL_AUTH_SECRET="${{ secrets.INFISICAL_AUTH_SECRET }}"
+            export INFISICAL_SITE_URL="${{ secrets.INFISICAL_SITE_URL }}"
+
+            # Database (reuse existing org secrets)
+            export PRIMARY_DB_HOST="${{ secrets.PRIMARY_DB_HOST }}"
+            export PRIMARY_DB_PORT="${{ secrets.PRIMARY_DB_PORT }}"
+            export PRIMARY_DB_USERNAME="${{ secrets.PRIMARY_DB_USERNAME }}"
+            export PRIMARY_DB_PASSWORD="${{ secrets.PRIMARY_DB_PASSWORD }}"
+            export PRIMARY_DB_DATABASE="${{ secrets.PRIMARY_DB_DATABASE }}"
+
+            # GitHub App connection (optional)
+            export INFISICAL_GITHUB_APP_CLIENT_ID="${{ secrets.INFISICAL_GITHUB_APP_CLIENT_ID }}"
+            export INFISICAL_GITHUB_APP_CLIENT_SECRET="${{ secrets.INFISICAL_GITHUB_APP_CLIENT_SECRET }}"
+            export INFISICAL_GITHUB_APP_PRIVATE_KEY="${{ secrets.INFISICAL_GITHUB_APP_PRIVATE_KEY }}"
+            export INFISICAL_GITHUB_APP_SLUG="${{ secrets.INFISICAL_GITHUB_APP_SLUG }}"
+            export INFISICAL_GITHUB_APP_ID="${{ secrets.INFISICAL_GITHUB_APP_ID }}"
+
+            # Download docker-compose file from repo
+            curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/main/docker/docker-infisical-compose.yml" -o docker-compose.yml
+
+            # Deploy
+            echo "[DEPLOY] Starting Infisical containers..."
+            docker compose up -d
+
+            # Wait for health
+            echo "⏳ Waiting for Infisical to be healthy..."
+            for i in {1..30}; do
+              if docker inspect infisical --format='{{.State.Health.Status}}' 2>/dev/null | grep -q "healthy"; then
+                echo "[OK] Infisical is healthy"
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "[WARNING] Health check timeout, checking logs..."
+                docker logs infisical --tail 50
+              fi
+              sleep 5
+            done
+
+            # Show status
+            echo "[CHECK] Container status:"
+            docker compose ps
+
+            # Show logs
+            echo "[LOGS] Recent logs:"
+            docker logs infisical --tail 30
+
+            # Cleanup
+            echo "[CLEANUP] Cleaning up old images..."
+            docker image prune -f
+
+            echo "[OK] Infisical deployment complete!"
+
+      - name: Health check
+        run: |
+          echo "[HEALTH] Running external health check..."
+          sleep 15
+
+          max_attempts=5
+          attempt=1
+
+          while [ $attempt -le $max_attempts ]; do
+            echo "Attempt $attempt of $max_attempts..."
+            if curl -sf "https://${{ secrets.INFISICAL_SITE_URL }}/api/status" > /dev/null 2>&1; then
+              echo "[OK] Health check passed!"
+              exit 0
+            fi
+            echo "⏳ Retrying in 15s..."
+            sleep 15
+            attempt=$((attempt + 1))
+          done
+
+          echo "[WARNING] External health check could not verify - check manually"
+
+      - name: Generate deployment summary
+        run: |
+          echo "## 🔐 Infisical Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`ghcr.io/${{ github.repository_owner }}/infisical-secret-manager:${{ inputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Server:** \`${{ secrets.SERVER_VM_HOST }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Site URL:** \`${{ secrets.INFISICAL_SITE_URL }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Services Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Infisical (port 8080)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Redis (internal)" >> $GITHUB_STEP_SUMMARY
