@@ -24,7 +24,7 @@ jobs:
     uses: ./.github/workflows/nginx-deploy.yml
     with:
       image_tag: ${{ needs.build.outputs.image_tag }}
-      service_name: nginx-proxy
+      service_name: nginx
       compose_file: /opt/vritti/docker-compose.yml
       working_dir: /opt/vritti
       health_check_url: http://localhost/health

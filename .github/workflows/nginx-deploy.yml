@@ -11,7 +11,7 @@ on:
         description: 'Docker compose service name'
         required: false
         type: string
-        default: 'nginx-proxy'
+        default: 'nginx'
       compose_file:
         description: 'Path to docker-compose file on server'
         required: false
@@ -37,7 +37,7 @@ on:
         description: 'Docker compose service name'
         required: false
         type: string
-        default: 'nginx-proxy'
+        default: 'nginx'
       compose_file:
         description: 'Path to docker-compose file on server'
         required: false
