@@ -110,17 +110,17 @@ jobs:
 
       - name: Test SSH connectivity
         run: |
-                mkdir -p ~/.ssh
-                echo "${{ secrets.SERVER_VM_SSH_KEY }}" > ~/.ssh/id_rsa
-                chmod 600 ~/.ssh/id_rsa
-                ssh -o ProxyCommand="cloudflared access ssh --hostname %h" \
-                -o StrictHostKeyChecking=no \
-                ${{ secrets.SERVER_VM_USER }}@${{ secrets.SERVER_VM_HOST }} \
-                'echo "SUCCESS: SSH connection successful"
-                echo "System info:"
-                echo "  OS: $(lsb_release -d | cut -f2)"
-                echo "  Kernel: $(uname -r)"
-                echo "  Hostname: $(hostname)"'
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_VM_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              -o StrictHostKeyChecking=no \
+              ${{ secrets.SERVER_VM_USER }}@${{ secrets.SERVER_VM_HOST }} \
+              'echo "SUCCESS: SSH connection successful"
+              echo "System info:"
+              echo "  OS: $(lsb_release -d | cut -f2)"
+              echo "  Kernel: $(uname -r)"
+              echo "  Hostname: $(hostname)"'
 
       - name: Copy setup scripts to VM
         uses: appleboy/scp-action@v0.1.7
