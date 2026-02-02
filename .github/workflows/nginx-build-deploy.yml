@@ -27,5 +27,5 @@ jobs:
       service_name: nginx
       compose_file: /opt/vritti/docker-compose.yml
       working_dir: /opt/vritti
-      health_check_url: http://localhost/health
+      health_check_url: https://vrittiai.com/health
     secrets: inherit
