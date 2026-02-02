@@ -75,78 +75,150 @@ jobs:
           script: |
             set -e
 
-            echo "[DEPLOY] Deploying Infisical Secret Manager..."
+            echo "=========================================="
+            echo "[DEPLOY] Deploying Infisical Secret Manager"
+            echo "=========================================="
 
             # Create infisical directory if not exists
+            echo "[STEP 1/9] Creating directory..."
             sudo mkdir -p /opt/infisical
+            sudo chown $(whoami):$(whoami) /opt/infisical
             cd /opt/infisical
+            echo "[OK] Working directory: $(pwd)"
 
             # Login to GHCR
+            echo "[STEP 2/9] Logging into GHCR..."
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "[OK] Docker login successful"
 
             # Pull the image
+            echo "[STEP 3/9] Pulling Docker image..."
             IMAGE="ghcr.io/${{ github.repository_owner }}/infisical-secret-manager:${{ inputs.image_tag }}"
-            echo "[PACKAGE] Pulling image: ${IMAGE}"
+            echo "Image: ${IMAGE}"
             docker pull "${IMAGE}"
-
-            # Export environment variables
-            echo "[CONFIG] Setting environment variables..."
-            export GITHUB_ORG="${{ github.repository_owner }}"
-            export INFISICAL_VERSION="${{ inputs.image_tag }}"
-
-            # Infisical-specific secrets
-            export INFISICAL_ENCRYPTION_KEY="${{ secrets.INFISICAL_ENCRYPTION_KEY }}"
-            export INFISICAL_AUTH_SECRET="${{ secrets.INFISICAL_AUTH_SECRET }}"
-            export INFISICAL_SITE_URL="${{ secrets.INFISICAL_SITE_URL }}"
-
-            # Database (reuse existing org secrets)
-            export PRIMARY_DB_HOST="${{ secrets.PRIMARY_DB_HOST }}"
-            export PRIMARY_DB_PORT="${{ secrets.PRIMARY_DB_PORT }}"
-            export PRIMARY_DB_USERNAME="${{ secrets.PRIMARY_DB_USERNAME }}"
-            export PRIMARY_DB_PASSWORD="${{ secrets.PRIMARY_DB_PASSWORD }}"
-            export PRIMARY_DB_DATABASE="${{ secrets.PRIMARY_DB_DATABASE }}"
-
-            # GitHub App connection (optional)
-            export INFISICAL_GITHUB_APP_CLIENT_ID="${{ secrets.INFISICAL_GITHUB_APP_CLIENT_ID }}"
-            export INFISICAL_GITHUB_APP_CLIENT_SECRET="${{ secrets.INFISICAL_GITHUB_APP_CLIENT_SECRET }}"
-            export INFISICAL_GITHUB_APP_PRIVATE_KEY="${{ secrets.INFISICAL_GITHUB_APP_PRIVATE_KEY }}"
-            export INFISICAL_GITHUB_APP_SLUG="${{ secrets.INFISICAL_GITHUB_APP_SLUG }}"
-            export INFISICAL_GITHUB_APP_ID="${{ secrets.INFISICAL_GITHUB_APP_ID }}"
+            echo "[OK] Image pulled successfully"
 
             # Download docker-compose file from repo
-            curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/main/docker/docker-infisical-compose.yml" -o docker-compose.yml
+            echo "[STEP 4/9] Downloading docker-compose.yml..."
+            COMPOSE_URL="https://raw.githubusercontent.com/${{ github.repository }}/main/docker/docker-infisical-compose.yml"
+            echo "URL: ${COMPOSE_URL}"
+            HTTP_CODE=$(curl -sL -w "%{http_code}" "${COMPOSE_URL}" -o docker-compose.yml)
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "[ERROR] Failed to download compose file. HTTP code: ${HTTP_CODE}"
+              exit 1
+            fi
+            if [ ! -s docker-compose.yml ]; then
+              echo "[ERROR] docker-compose.yml is empty or missing"
+              exit 1
+            fi
+            echo "[OK] Compose file downloaded ($(wc -l < docker-compose.yml) lines)"
 
-            # Deploy
-            echo "[DEPLOY] Starting Infisical containers..."
+            # Show compose file for debugging
+            echo "[STEP 5/9] Compose file contents:"
+            echo "---"
+            cat docker-compose.yml
+            echo "---"
+
+            # Create .env file (more reliable than export)
+            echo "[STEP 6/9] Creating .env file..."
+            echo "GITHUB_ORG=${{ github.repository_owner }}" > .env
+            echo "INFISICAL_VERSION=${{ inputs.image_tag }}" >> .env
+            echo "INFISICAL_ENCRYPTION_KEY=${{ secrets.INFISICAL_ENCRYPTION_KEY }}" >> .env
+            echo "INFISICAL_AUTH_SECRET=${{ secrets.INFISICAL_AUTH_SECRET }}" >> .env
+            echo "INFISICAL_SITE_URL=${{ secrets.INFISICAL_SITE_URL }}" >> .env
+            echo "PRIMARY_DB_HOST=${{ secrets.PRIMARY_DB_HOST }}" >> .env
+            echo "PRIMARY_DB_PORT=${{ secrets.PRIMARY_DB_PORT }}" >> .env
+            echo "PRIMARY_DB_USERNAME=${{ secrets.PRIMARY_DB_USERNAME }}" >> .env
+            echo "PRIMARY_DB_PASSWORD=${{ secrets.PRIMARY_DB_PASSWORD }}" >> .env
+            echo "PRIMARY_DB_DATABASE=${{ secrets.PRIMARY_DB_DATABASE }}" >> .env
+            echo "INFISICAL_GITHUB_APP_CLIENT_ID=${{ secrets.INFISICAL_GITHUB_APP_CLIENT_ID }}" >> .env
+            echo "INFISICAL_GITHUB_APP_CLIENT_SECRET=${{ secrets.INFISICAL_GITHUB_APP_CLIENT_SECRET }}" >> .env
+            echo "INFISICAL_GITHUB_APP_PRIVATE_KEY=${{ secrets.INFISICAL_GITHUB_APP_PRIVATE_KEY }}" >> .env
+            echo "INFISICAL_GITHUB_APP_SLUG=${{ secrets.INFISICAL_GITHUB_APP_SLUG }}" >> .env
+            echo "INFISICAL_GITHUB_APP_ID=${{ secrets.INFISICAL_GITHUB_APP_ID }}" >> .env
+            echo "[OK] .env file created with $(wc -l < .env) variables"
+
+            # Verify required environment variables
+            echo "[STEP 7/9] Verifying environment variables..."
+            source .env
+            MISSING_VARS=""
+            [ -z "$INFISICAL_ENCRYPTION_KEY" ] && MISSING_VARS="$MISSING_VARS INFISICAL_ENCRYPTION_KEY"
+            [ -z "$INFISICAL_AUTH_SECRET" ] && MISSING_VARS="$MISSING_VARS INFISICAL_AUTH_SECRET"
+            [ -z "$INFISICAL_SITE_URL" ] && MISSING_VARS="$MISSING_VARS INFISICAL_SITE_URL"
+            [ -z "$PRIMARY_DB_HOST" ] && MISSING_VARS="$MISSING_VARS PRIMARY_DB_HOST"
+            [ -z "$PRIMARY_DB_USERNAME" ] && MISSING_VARS="$MISSING_VARS PRIMARY_DB_USERNAME"
+            [ -z "$PRIMARY_DB_PASSWORD" ] && MISSING_VARS="$MISSING_VARS PRIMARY_DB_PASSWORD"
+            [ -z "$PRIMARY_DB_DATABASE" ] && MISSING_VARS="$MISSING_VARS PRIMARY_DB_DATABASE"
+            if [ -n "$MISSING_VARS" ]; then
+              echo "[ERROR] Missing required variables:$MISSING_VARS"
+              exit 1
+            fi
+            echo "[OK] All required variables are set"
+            echo "  - GITHUB_ORG: ${GITHUB_ORG}"
+            echo "  - INFISICAL_VERSION: ${INFISICAL_VERSION}"
+            echo "  - INFISICAL_SITE_URL: ${INFISICAL_SITE_URL}"
+            echo "  - PRIMARY_DB_HOST: ${PRIMARY_DB_HOST}"
+            echo "  - PRIMARY_DB_PORT: ${PRIMARY_DB_PORT}"
+            echo "  - PRIMARY_DB_DATABASE: ${PRIMARY_DB_DATABASE}"
+
+            # Validate compose configuration
+            echo "[STEP 8/9] Validating docker-compose configuration..."
+            if ! docker compose config > /dev/null 2>&1; then
+              echo "[ERROR] Docker compose config validation failed:"
+              docker compose config 2>&1 || true
+              exit 1
+            fi
+            echo "[OK] Compose configuration is valid"
+
+            # Stop existing containers if running
+            echo "[STEP 9/9] Deploying containers..."
+            echo "Stopping existing containers (if any)..."
+            docker compose down --remove-orphans 2>/dev/null || true
+
+            echo "Starting containers..."
             docker compose up -d
 
             # Wait for health
-            echo "⏳ Waiting for Infisical to be healthy..."
+            echo ""
+            echo "[HEALTH] Waiting for Infisical to be healthy..."
             for i in {1..30}; do
-              if docker inspect infisical --format='{{.State.Health.Status}}' 2>/dev/null | grep -q "healthy"; then
-                echo "[OK] Infisical is healthy"
+              STATUS=$(docker inspect infisical --format='{{.State.Health.Status}}' 2>/dev/null || echo "not_found")
+              echo "  Attempt $i/30: Status = $STATUS"
+              if [ "$STATUS" = "healthy" ]; then
+                echo "[OK] Infisical is healthy!"
                 break
               fi
+              if [ "$STATUS" = "unhealthy" ]; then
+                echo "[ERROR] Container is unhealthy. Checking logs..."
+                docker logs infisical --tail 100
+                exit 1
+              fi
               if [ $i -eq 30 ]; then
-                echo "[WARNING] Health check timeout, checking logs..."
-                docker logs infisical --tail 50
+                echo "[WARNING] Health check timeout after 2.5 minutes"
+                echo "Container logs:"
+                docker logs infisical --tail 100
               fi
               sleep 5
             done
 
-            # Show status
-            echo "[CHECK] Container status:"
+            # Show final status
+            echo ""
+            echo "[STATUS] Container status:"
             docker compose ps
 
-            # Show logs
-            echo "[LOGS] Recent logs:"
+            echo ""
+            echo "[LOGS] Recent Infisical logs:"
             docker logs infisical --tail 30
 
-            # Cleanup
-            echo "[CLEANUP] Cleaning up old images..."
+            # Cleanup old images
+            echo ""
+            echo "[CLEANUP] Removing unused images..."
             docker image prune -f
 
+            echo ""
+            echo "=========================================="
             echo "[OK] Infisical deployment complete!"
+            echo "=========================================="
 
       - name: Health check
         run: |
