@@ -7,7 +7,7 @@ services:
     container_name: infisical
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "80:8080"
     depends_on:
       infisical-redis:
         condition: service_started
