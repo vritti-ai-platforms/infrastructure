@@ -11,16 +11,18 @@ services:
     depends_on:
       infisical-redis:
         condition: service_started
+      infisical-postgres:
+        condition: service_healthy
     environment:
       - NODE_ENV=production
       # Encryption & Auth
       - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}
       - AUTH_SECRET=${INFISICAL_AUTH_SECRET}
-      # Database (external PostgreSQL - reuses existing secrets)
-      - DB_CONNECTION_URI=postgres://${PRIMARY_DB_USERNAME}:${PRIMARY_DB_PASSWORD}@${PRIMARY_DB_HOST}:${PRIMARY_DB_PORT}/${PRIMARY_DB_DATABASE}
-      - POSTGRES_USER=${PRIMARY_DB_USERNAME}
-      - POSTGRES_PASSWORD=${PRIMARY_DB_PASSWORD}
-      - POSTGRES_DB=${PRIMARY_DB_DATABASE}
+      # Database (internal PostgreSQL container - hardcoded, port not exposed externally)
+      - DB_CONNECTION_URI=postgres://infisical:infisical_internal@infisical-postgres:5432/infisical_db
+      - POSTGRES_USER=infisical
+      - POSTGRES_PASSWORD=infisical_internal
+      - POSTGRES_DB=infisical_db
       # Redis (internal)
       - REDIS_URL=redis://infisical-redis:6379
       # Site URL
@@ -59,7 +61,6 @@ services:
         max-file: "3"
     networks:
       - infisical-network
-      - vritti-network
 
   infisical-redis:
     image: redis:7-alpine
@@ -80,13 +81,37 @@ services:
     networks:
       - infisical-network
 
+  infisical-postgres:
+    image: postgres:16-alpine
+    container_name: infisical-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=infisical
+      - POSTGRES_PASSWORD=infisical_internal
+      - POSTGRES_DB=infisical_db
+    volumes:
+      - infisical-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U infisical -d infisical_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - infisical-network
+
 volumes:
   infisical-redis-data:
+    driver: local
+  infisical-postgres-data:
     driver: local
 
 networks:
   infisical-network:
     name: infisical-network
     driver: bridge
-  vritti-network:
-    external: true
