@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Incremental PostgreSQL backup for Infisical Secret Manager
-# Backs up to REPO1 (local) and REPO2 (Cloudflare R2) in a single pass.
+# Runs an incremental backup to REPO1 (local) then REPO2 (Cloudflare R2).
 # Requires a prior full backup to exist in each repo.
 # Schedule: Mon–Sat at 02:00 UTC (see backup/cron/backup-crontab)
 #
@@ -25,15 +25,27 @@ if ! docker inspect "${POSTGRES}" --format='{{.State.Running}}' 2>/dev/null | gr
     die "container '${POSTGRES}' is not running. Run: docker compose up -d infisical-postgres"
 fi
 
-# Incremental backup to all repos in a single pass (reads DB once, writes to REPO1 + REPO2 simultaneously)
-log "Backing up to REPO1 (local) + REPO2 (Cloudflare R2)..."
+# Incremental backup to REPO1 (local)
+log "Backing up to REPO1 (local)..."
 docker exec -u postgres "${POSTGRES}" \
     pgbackrest \
         --stanza="${STANZA}" \
+        --repo=1 \
         --type=incr \
         --log-level-console=info \
         backup
-log "Incremental backup complete (both repos)"
+log "REPO1 incremental backup complete"
+
+# Incremental backup to REPO2 (Cloudflare R2)
+log "Backing up to REPO2 (Cloudflare R2)..."
+docker exec -u postgres "${POSTGRES}" \
+    pgbackrest \
+        --stanza="${STANZA}" \
+        --repo=2 \
+        --type=incr \
+        --log-level-console=info \
+        backup
+log "REPO2 incremental backup complete"
 
 log "========================================"
 log "INCREMENTAL backup complete"
