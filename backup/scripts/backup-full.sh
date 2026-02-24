@@ -26,7 +26,7 @@ fi
 
 # Full backup to REPO1 (local, fast)
 log "Backing up to REPO1 (local)..."
-docker exec "${POSTGRES}" \
+docker exec -u postgres "${POSTGRES}" \
     pgbackrest \
         --stanza="${STANZA}" \
         --repo=1 \
@@ -37,7 +37,7 @@ log "REPO1 full backup complete"
 
 # Full backup to REPO2 (Cloudflare R2, offsite)
 log "Backing up to REPO2 (Cloudflare R2)..."
-docker exec "${POSTGRES}" \
+docker exec -u postgres "${POSTGRES}" \
     pgbackrest \
         --stanza="${STANZA}" \
         --repo=2 \
@@ -48,7 +48,7 @@ log "REPO2 full backup complete"
 
 # Print backup info summary
 log "Backup info:"
-docker exec "${POSTGRES}" pgbackrest --stanza="${STANZA}" info
+docker exec -u postgres "${POSTGRES}" pgbackrest --stanza="${STANZA}" info
 
 log "========================================"
 log "FULL backup complete"

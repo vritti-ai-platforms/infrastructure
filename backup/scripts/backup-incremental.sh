@@ -27,7 +27,7 @@ fi
 
 # Incremental backup to REPO1
 log "Backing up to REPO1 (local)..."
-docker exec "${POSTGRES}" \
+docker exec -u postgres "${POSTGRES}" \
     pgbackrest \
         --stanza="${STANZA}" \
         --repo=1 \
@@ -38,7 +38,7 @@ log "REPO1 incremental backup complete"
 
 # Incremental backup to REPO2
 log "Backing up to REPO2 (Cloudflare R2)..."
-docker exec "${POSTGRES}" \
+docker exec -u postgres "${POSTGRES}" \
     pgbackrest \
         --stanza="${STANZA}" \
         --repo=2 \

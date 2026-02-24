@@ -36,7 +36,7 @@ fi
 
 # --- Check REPO1 (local) WAL archiving ---
 log "Checking REPO1 WAL archive connectivity..."
-if docker exec "${POSTGRES}" \
+if docker exec -u postgres "${POSTGRES}" \
     pgbackrest --stanza="${STANZA}" --repo=1 check \
     --log-level-console=warn 2>&1 | grep -v "^$"; then
     log "REPO1 WAL archive check: OK"
@@ -46,7 +46,7 @@ fi
 
 # --- Check REPO2 (R2) connectivity ---
 log "Checking REPO2 (R2) connectivity..."
-if docker exec "${POSTGRES}" \
+if docker exec -u postgres "${POSTGRES}" \
     pgbackrest --stanza="${STANZA}" --repo=2 check \
     --log-level-console=warn 2>&1 | grep -v "^$"; then
     log "REPO2 connectivity check: OK"
@@ -56,7 +56,7 @@ fi
 
 # --- Check backup age ---
 log "Checking backup age..."
-INFO_OUTPUT=$(docker exec "${POSTGRES}" pgbackrest --stanza="${STANZA}" info 2>&1)
+INFO_OUTPUT=$(docker exec -u postgres "${POSTGRES}" pgbackrest --stanza="${STANZA}" info 2>&1)
 echo "${INFO_OUTPUT}"
 
 # Find the most recent backup stop time in the info output
