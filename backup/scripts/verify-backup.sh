@@ -38,7 +38,7 @@ fi
 log "Checking REPO1 WAL archive connectivity..."
 if docker exec -u postgres "${POSTGRES}" \
     pgbackrest --stanza="${STANZA}" --repo=1 check \
-    --log-level-console=warn 2>&1 | grep -v "^$"; then
+    --log-level-console=warn 2>&1; then
     log "REPO1 WAL archive check: OK"
 else
     err "REPO1 WAL archive check FAILED — archive_command may not be working"
@@ -48,7 +48,7 @@ fi
 log "Checking REPO2 (R2) connectivity..."
 if docker exec -u postgres "${POSTGRES}" \
     pgbackrest --stanza="${STANZA}" --repo=2 check \
-    --log-level-console=warn 2>&1 | grep -v "^$"; then
+    --log-level-console=warn 2>&1; then
     log "REPO2 connectivity check: OK"
 else
     warn "REPO2 (R2) connectivity check FAILED — check R2 credentials and endpoint"

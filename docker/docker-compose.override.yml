@@ -31,8 +31,7 @@ services:
       context: ./backup/docker
       dockerfile: Dockerfile.postgres-pgbackrest
     # Pass archive_command settings via -c flags.
-    # archive_command writes WAL segments to REPO1 (local volume) only;
-    # REPO2 (R2) receives WAL during the backup operation itself.
+    # archive_command archives WAL segments to all repos (REPO1 local + REPO2 R2).
     command:
       - postgres
       - -c
