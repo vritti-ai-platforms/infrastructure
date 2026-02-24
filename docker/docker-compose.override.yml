@@ -1,0 +1,136 @@
+# Backup override for Infisical Secret Manager
+#
+# Docker Compose automatically merges this file with docker-infisical-compose.yml
+# (or docker-compose.yml on the server) when both are in the same directory.
+#
+# Adds:
+#   - Custom postgres:16+pgBackRest image replacing postgres:16-alpine
+#   - WAL archiving via archive_command (enables PITR)
+#   - infisical-pgbackrest sidecar for backup/restore operations
+#   - Redis AOF+RDB persistence
+#   - New volumes: pgbackrest_local, pgbackrest_log
+#
+# Required .env variables (add to /opt/infisical/.env on the server):
+#   BACKREST_R2_ENDPOINT          https://<account_id>.r2.cloudflarestorage.com
+#   BACKREST_R2_BUCKET            infisical-backups
+#   BACKREST_R2_ACCESS_KEY        R2 API token key ID
+#   BACKREST_R2_SECRET_KEY        R2 API token secret
+#   BACKREST_REPO1_CIPHER_PASS    local repo encryption passphrase
+#   BACKREST_REPO2_CIPHER_PASS    R2 repo encryption passphrase (different from repo1)
+
+services:
+
+  # ---------------------------------------------------------------
+  # Override infisical-postgres: replace alpine image with custom
+  # Debian-based image that has pgBackRest installed, and enable
+  # WAL archiving so PITR is possible.
+  # ---------------------------------------------------------------
+  infisical-postgres:
+    image: infisical-postgres-pgbackrest:16
+    build:
+      context: ./backup/docker
+      dockerfile: Dockerfile.postgres-pgbackrest
+    # Pass archive_command settings via -c flags.
+    # archive_command writes WAL segments to REPO1 (local volume) only;
+    # REPO2 (R2) receives WAL during the backup operation itself.
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - "archive_command=pgbackrest --stanza=infisical --repo=1 archive-push %p"
+      - -c
+      - archive_timeout=60
+    volumes:
+      # Keep existing data volume (defined in base compose)
+      - infisical-postgres-data:/var/lib/postgresql/data
+      # pgBackRest config (read-only; shared with sidecar)
+      - ./backup/config/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      # REPO1: shared volume for WAL archive written by archive_command
+      - pgbackrest_local:/var/lib/pgbackrest
+      # Logs
+      - pgbackrest_log:/var/log/pgbackrest
+    environment:
+      # Existing postgres vars inherited from base compose.
+      # pgBackRest env vars for archive-push (repo1 only):
+      - PGBACKREST_REPO1_CIPHER_TYPE=aes-256-cbc
+      - PGBACKREST_REPO1_CIPHER_PASS=${BACKREST_REPO1_CIPHER_PASS}
+      - PGBACKREST_PG1_PASSWORD=${INFISICAL_INTERNAL_DB_PASSWORD:-infisical_internal}
+
+  # ---------------------------------------------------------------
+  # infisical-pgbackrest: sidecar container for backup/restore.
+  # Stays idle; triggered by cron via `docker exec`.
+  # Same image as infisical-postgres (both need pgBackRest installed).
+  # ---------------------------------------------------------------
+  infisical-pgbackrest:
+    image: infisical-postgres-pgbackrest:16
+    build:
+      context: ./backup/docker
+      dockerfile: Dockerfile.postgres-pgbackrest
+    container_name: infisical-pgbackrest
+    restart: unless-stopped
+    depends_on:
+      infisical-postgres:
+        condition: service_healthy
+    volumes:
+      # Read-only access to live postgres data (for file-level backup)
+      - infisical-postgres-data:/var/lib/postgresql/data:ro
+      # pgBackRest config (shared with postgres container)
+      - ./backup/config/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      # REPO1: local backup repository
+      - pgbackrest_local:/var/lib/pgbackrest
+      # Logs
+      - pgbackrest_log:/var/log/pgbackrest
+    environment:
+      # REPO1 (local) encryption
+      - PGBACKREST_REPO1_CIPHER_TYPE=aes-256-cbc
+      - PGBACKREST_REPO1_CIPHER_PASS=${BACKREST_REPO1_CIPHER_PASS}
+      # REPO2 (Cloudflare R2) encryption
+      - PGBACKREST_REPO2_CIPHER_TYPE=aes-256-cbc
+      - PGBACKREST_REPO2_CIPHER_PASS=${BACKREST_REPO2_CIPHER_PASS}
+      # REPO2 S3/R2 credentials
+      - PGBACKREST_REPO2_S3_BUCKET=${BACKREST_R2_BUCKET}
+      - PGBACKREST_REPO2_S3_ENDPOINT=${BACKREST_R2_ENDPOINT}
+      - PGBACKREST_REPO2_S3_KEY=${BACKREST_R2_ACCESS_KEY}
+      - PGBACKREST_REPO2_S3_KEY_SECRET=${BACKREST_R2_SECRET_KEY}
+      # PostgreSQL connection password
+      - PGBACKREST_PG1_PASSWORD=${INFISICAL_INTERNAL_DB_PASSWORD:-infisical_internal}
+    # Keep container alive; backup jobs triggered by host crontab via docker exec
+    command: ["sleep", "infinity"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - infisical-network
+
+  # ---------------------------------------------------------------
+  # Override infisical-redis: enable AOF + RDB persistence so that
+  # backup-redis.sh always has a fresh dump.rdb to copy.
+  # ---------------------------------------------------------------
+  infisical-redis:
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfilename
+      - appendonly.aof
+      - --save
+      - "60 1"
+      - --save
+      - "300 10"
+      - --save
+      - "900 1000"
+      - --dir
+      - /data
+
+volumes:
+  # REPO1: local pgBackRest backup repository
+  pgbackrest_local:
+    driver: local
+  # pgBackRest log files
+  pgbackrest_log:
+    driver: local

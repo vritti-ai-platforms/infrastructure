@@ -43,6 +43,19 @@ on:
         required: false
       INFISICAL_GITHUB_APP_ID:
         required: false
+      # Backup - Cloudflare R2 credentials (prefixed INFISICAL_ to avoid collision with other VM backup secrets)
+      INFISICAL_BACKREST_R2_ENDPOINT:
+        required: false
+      INFISICAL_BACKREST_R2_BUCKET:
+        required: false
+      INFISICAL_BACKREST_R2_ACCESS_KEY:
+        required: false
+      INFISICAL_BACKREST_R2_SECRET_KEY:
+        required: false
+      INFISICAL_BACKREST_REPO1_CIPHER_PASS:
+        required: false
+      INFISICAL_BACKREST_REPO2_CIPHER_PASS:
+        required: false
 
 jobs:
   deploy:
@@ -85,20 +98,47 @@ jobs:
             docker pull "${IMAGE}"
             echo "[OK] Image pulled successfully"
 
-            # Download docker-compose file from repo
-            echo "[STEP 4/9] Downloading docker-compose.yml..."
-            COMPOSE_URL="https://raw.githubusercontent.com/${{ github.repository }}/main/docker/docker-infisical-compose.yml"
-            echo "URL: ${COMPOSE_URL}"
-            HTTP_CODE=$(curl -sL -w "%{http_code}" "${COMPOSE_URL}" -o docker-compose.yml)
-            if [ "$HTTP_CODE" != "200" ]; then
-              echo "[ERROR] Failed to download compose file. HTTP code: ${HTTP_CODE}"
-              exit 1
-            fi
-            if [ ! -s docker-compose.yml ]; then
-              echo "[ERROR] docker-compose.yml is empty or missing"
-              exit 1
-            fi
-            echo "[OK] Compose file downloaded ($(wc -l < docker-compose.yml) lines)"
+            # Download docker-compose files and backup infrastructure from repo
+            echo "[STEP 4/9] Downloading compose files and backup scripts..."
+            RAW="https://raw.githubusercontent.com/${{ github.repository }}/main"
+
+            # Helper: download a file, fail on non-200
+            download_file() {
+              local url="$1" dest="$2"
+              mkdir -p "$(dirname "${dest}")"
+              HTTP_CODE=$(curl -sL -w "%{http_code}" "${url}" -o "${dest}")
+              if [ "$HTTP_CODE" != "200" ]; then
+                echo "[ERROR] Failed to download ${url} (HTTP ${HTTP_CODE})"
+                exit 1
+              fi
+              echo "[OK] Downloaded $(basename "${dest}") ($(wc -l < "${dest}") lines)"
+            }
+
+            # Base compose file
+            download_file "${RAW}/docker/docker-infisical-compose.yml" "docker-compose.yml"
+
+            # Backup compose override (auto-merged by Docker Compose)
+            download_file "${RAW}/docker/docker-compose.override.yml" "docker-compose.override.yml"
+
+            # pgBackRest config
+            download_file "${RAW}/backup/config/pgbackrest.conf" "backup/config/pgbackrest.conf"
+
+            # Custom Postgres+pgBackRest Dockerfile and build context
+            download_file "${RAW}/backup/docker/Dockerfile.postgres-pgbackrest" "backup/docker/Dockerfile.postgres-pgbackrest"
+
+            # Backup scripts
+            for SCRIPT in backup-full.sh backup-incremental.sh backup-redis.sh restore-postgres.sh restore-redis.sh verify-backup.sh; do
+              download_file "${RAW}/backup/scripts/${SCRIPT}" "backup/scripts/${SCRIPT}"
+              chmod +x "backup/scripts/${SCRIPT}"
+            done
+
+            # Cron schedule
+            download_file "${RAW}/backup/cron/backup-crontab" "backup/cron/backup-crontab"
+
+            # env.backup.example (for reference; actual .env.backup written below)
+            download_file "${RAW}/backup/.env.backup.example" "backup/.env.backup.example"
+
+            echo "[OK] All compose and backup files downloaded"
 
             # Show compose file for debugging
             echo "[STEP 5/9] Compose file contents:"
@@ -118,7 +158,30 @@ jobs:
             echo "INFISICAL_GITHUB_APP_PRIVATE_KEY=${{ secrets.INFISICAL_GITHUB_APP_PRIVATE_KEY }}" >> .env
             echo "INFISICAL_GITHUB_APP_SLUG=${{ secrets.INFISICAL_GITHUB_APP_SLUG }}" >> .env
             echo "INFISICAL_GITHUB_APP_ID=${{ secrets.INFISICAL_GITHUB_APP_ID }}" >> .env
+            # Backup - pgBackRest and Cloudflare R2 credentials (used by docker-compose.override.yml)
+            echo "BACKREST_R2_ENDPOINT=${{ secrets.INFISICAL_BACKREST_R2_ENDPOINT }}" >> .env
+            echo "BACKREST_R2_BUCKET=${{ secrets.INFISICAL_BACKREST_R2_BUCKET }}" >> .env
+            echo "BACKREST_R2_ACCESS_KEY=${{ secrets.INFISICAL_BACKREST_R2_ACCESS_KEY }}" >> .env
+            echo "BACKREST_R2_SECRET_KEY=${{ secrets.INFISICAL_BACKREST_R2_SECRET_KEY }}" >> .env
+            echo "BACKREST_REPO1_CIPHER_PASS=${{ secrets.INFISICAL_BACKREST_REPO1_CIPHER_PASS }}" >> .env
+            echo "BACKREST_REPO2_CIPHER_PASS=${{ secrets.INFISICAL_BACKREST_REPO2_CIPHER_PASS }}" >> .env
             echo "[OK] .env file created with $(wc -l < .env) variables"
+
+            # Write backup/.env.backup for scripts that source it directly (backup-redis.sh etc.)
+            echo "[STEP 6b] Writing backup/.env.backup..."
+            mkdir -p backup
+            # Note: unquoted heredoc so GitHub Actions ${{ }} expressions are expanded
+            cat > backup/.env.backup <<BACKUP_ENV_EOF
+BACKREST_R2_ENDPOINT=${{ secrets.INFISICAL_BACKREST_R2_ENDPOINT }}
+BACKREST_R2_BUCKET=${{ secrets.INFISICAL_BACKREST_R2_BUCKET }}
+BACKREST_R2_ACCESS_KEY=${{ secrets.INFISICAL_BACKREST_R2_ACCESS_KEY }}
+BACKREST_R2_SECRET_KEY=${{ secrets.INFISICAL_BACKREST_R2_SECRET_KEY }}
+REDIS_BACKUP_LOCAL_DIR=/opt/vritti/backups/infisical/redis
+REDIS_CONTAINER=infisical-redis
+BACKUP_MAX_AGE_HOURS=26
+BACKUP_ENV_EOF
+            chmod 600 backup/.env.backup
+            echo "[OK] backup/.env.backup written"
 
             # Verify required environment variables
             echo "[STEP 7/9] Verifying environment variables..."
@@ -146,13 +209,40 @@ jobs:
             fi
             echo "[OK] Compose configuration is valid"
 
+            # Create local backup storage directory (follows /opt/vritti/ pattern)
+            echo "[STEP 8b] Creating backup storage directories..."
+            sudo mkdir -p /opt/vritti/backups/infisical/redis
+            sudo chown -R $(whoami):$(whoami) /opt/vritti/backups/infisical
+            echo "[OK] Backup directories ready"
+
+            # Build the custom postgres+pgBackRest image
+            echo "[STEP 8c] Building custom postgres+pgBackRest image..."
+            docker compose build infisical-postgres infisical-pgbackrest
+            echo "[OK] Custom image built"
+
             # Stop existing containers if running
             echo "[STEP 9/9] Deploying containers..."
             echo "Stopping existing containers (if any)..."
             docker compose down --remove-orphans 2>/dev/null || true
 
-            echo "Starting containers..."
+            echo "Starting containers (with backup sidecar)..."
             docker compose up -d
+
+            # Initialize pgBackRest stanza on first deploy (idempotent)
+            echo "[BACKUP] Initializing pgBackRest stanza (safe to run multiple times)..."
+            sleep 10
+            docker exec infisical-pgbackrest \
+              pgbackrest --stanza=infisical stanza-create 2>&1 || \
+              echo "[BACKUP] Stanza already exists or not ready yet — run manually if needed"
+
+            # Install cron schedule (only if not already installed)
+            echo "[BACKUP] Installing backup cron schedule..."
+            if ! crontab -l 2>/dev/null | grep -q "infisical-backup"; then
+              crontab /opt/infisical/backup/cron/backup-crontab
+              echo "[OK] Backup cron schedule installed"
+            else
+              echo "[OK] Backup cron schedule already installed"
+            fi
 
             # Wait for health
             echo ""
@@ -227,5 +317,12 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Services Deployed" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Infisical (port 8080)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Redis (internal)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ PostgreSQL 16 (internal, persistent volume)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Redis (internal, AOF+RDB persistence enabled)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ PostgreSQL 16 (internal, WAL archiving enabled)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ pgBackRest sidecar (backup/restore)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Backup Schedule (UTC)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🗄️ Full backup: Every Sunday 02:00" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 Incremental: Mon–Sat 02:00" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔴 Redis: Every day 03:00" >> $GITHUB_STEP_SUMMARY
+          echo "- ✔️ Verify: Every day 04:00" >> $GITHUB_STEP_SUMMARY

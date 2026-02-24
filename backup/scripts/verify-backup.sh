@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Verify backup health for Infisical Secret Manager
+# Checks WAL archiving is working and backup age is within threshold.
+#
+# Exit codes:
+#   0  All checks passed
+#   1  Warning (backup older than threshold)
+#   2  Error (WAL check failed or no backups found)
+#
+# Schedule: Every day at 04:00 UTC (see backup/cron/backup-crontab)
+#
+# Usage:
+#   bash /opt/infisical/backup/scripts/verify-backup.sh
+set -euo pipefail
+
+SIDECAR="infisical-pgbackrest"
+STANZA="infisical"
+MAX_AGE_HOURS="${BACKUP_MAX_AGE_HOURS:-26}"
+LOG_TAG="[infisical-verify]"
+EXIT_CODE=0
+
+log()  { echo "${LOG_TAG} $(date -u +%H:%M:%SZ) $*"; }
+warn() { echo "${LOG_TAG} WARN: $*"; EXIT_CODE=1; }
+err()  { echo "${LOG_TAG} ERROR: $*" >&2; EXIT_CODE=2; }
+
+log "========================================"
+log "Starting backup verification"
+log "Max allowed backup age: ${MAX_AGE_HOURS}h"
+log "========================================"
+
+# Verify sidecar is running
+if ! docker inspect "${SIDECAR}" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
+    err "sidecar container '${SIDECAR}' is not running"
+    exit 2
+fi
+
+# --- Check REPO1 (local) WAL archiving ---
+log "Checking REPO1 WAL archive connectivity..."
+if docker exec "${SIDECAR}" \
+    pgbackrest --stanza="${STANZA}" --repo=1 check \
+    --log-level-console=warn 2>&1 | grep -v "^$"; then
+    log "REPO1 WAL archive check: OK"
+else
+    err "REPO1 WAL archive check FAILED — archive_command may not be working"
+fi
+
+# --- Check REPO2 (R2) connectivity ---
+log "Checking REPO2 (R2) connectivity..."
+if docker exec "${SIDECAR}" \
+    pgbackrest --stanza="${STANZA}" --repo=2 check \
+    --log-level-console=warn 2>&1 | grep -v "^$"; then
+    log "REPO2 connectivity check: OK"
+else
+    warn "REPO2 (R2) connectivity check FAILED — check R2 credentials and endpoint"
+fi
+
+# --- Check backup age ---
+log "Checking backup age..."
+INFO_OUTPUT=$(docker exec "${SIDECAR}" pgbackrest --stanza="${STANZA}" info 2>&1)
+echo "${INFO_OUTPUT}"
+
+# Find the most recent backup stop time in the info output
+LAST_STOP=$(echo "${INFO_OUTPUT}" | grep "timestamp stop:" | tail -1 | awk '{print $3, $4}')
+
+if [[ -z "${LAST_STOP}" ]]; then
+    err "No backups found in any repo — run backup-full.sh to create the first backup"
+else
+    # Parse timestamp and check age
+    LAST_EPOCH=$(date -d "${LAST_STOP}" +%s 2>/dev/null || echo 0)
+    NOW_EPOCH=$(date +%s)
+    AGE_HOURS=$(( (NOW_EPOCH - LAST_EPOCH) / 3600 ))
+
+    log "Most recent backup stop: ${LAST_STOP} (${AGE_HOURS}h ago)"
+
+    if [[ "${AGE_HOURS}" -gt "${MAX_AGE_HOURS}" ]]; then
+        warn "BACKUP IS STALE: Last backup was ${AGE_HOURS}h ago (threshold: ${MAX_AGE_HOURS}h)"
+        warn "Check cron logs: cat /var/log/infisical-backup.log"
+    else
+        log "Backup age check: OK (${AGE_HOURS}h < ${MAX_AGE_HOURS}h threshold)"
+    fi
+fi
+
+log "========================================"
+if [[ "${EXIT_CODE}" -eq 0 ]]; then
+    log "All checks PASSED"
+elif [[ "${EXIT_CODE}" -eq 1 ]]; then
+    log "Verification completed with WARNINGS (exit ${EXIT_CODE})"
+else
+    log "Verification FAILED (exit ${EXIT_CODE})"
+fi
+log "========================================"
+
+exit "${EXIT_CODE}"

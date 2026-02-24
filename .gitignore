@@ -37,3 +37,6 @@ docker/ssl/
 docker/logs/
 docker/letsencrypt/
 docker/.env
+
+# Backup secrets (R2 credentials, cipher passphrases)
+backup/.env.backup
