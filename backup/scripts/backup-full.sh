@@ -7,7 +7,7 @@
 #   bash /opt/infisical/backup/scripts/backup-full.sh
 set -euo pipefail
 
-SIDECAR="infisical-pgbackrest"
+POSTGRES="infisical-postgres"
 STANZA="infisical"
 LOG_TAG="[infisical-backup-full]"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -19,14 +19,14 @@ log "========================================"
 log "Starting FULL backup at ${TIMESTAMP}"
 log "========================================"
 
-# Verify the sidecar container is running
-if ! docker inspect "${SIDECAR}" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
-    die "sidecar container '${SIDECAR}' is not running. Run: docker compose up -d infisical-pgbackrest"
+# Verify the postgres container is running
+if ! docker inspect "${POSTGRES}" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
+    die "container '${POSTGRES}' is not running. Run: docker compose up -d infisical-postgres"
 fi
 
 # Full backup to REPO1 (local, fast)
 log "Backing up to REPO1 (local)..."
-docker exec "${SIDECAR}" \
+docker exec "${POSTGRES}" \
     pgbackrest \
         --stanza="${STANZA}" \
         --repo=1 \
@@ -37,7 +37,7 @@ log "REPO1 full backup complete"
 
 # Full backup to REPO2 (Cloudflare R2, offsite)
 log "Backing up to REPO2 (Cloudflare R2)..."
-docker exec "${SIDECAR}" \
+docker exec "${POSTGRES}" \
     pgbackrest \
         --stanza="${STANZA}" \
         --repo=2 \
@@ -48,7 +48,7 @@ log "REPO2 full backup complete"
 
 # Print backup info summary
 log "Backup info:"
-docker exec "${SIDECAR}" pgbackrest --stanza="${STANZA}" info
+docker exec "${POSTGRES}" pgbackrest --stanza="${STANZA}" info
 
 log "========================================"
 log "FULL backup complete"

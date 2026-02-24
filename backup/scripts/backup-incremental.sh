@@ -8,7 +8,7 @@
 #   bash /opt/infisical/backup/scripts/backup-incremental.sh
 set -euo pipefail
 
-SIDECAR="infisical-pgbackrest"
+POSTGRES="infisical-postgres"
 STANZA="infisical"
 LOG_TAG="[infisical-backup-incr]"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -20,14 +20,14 @@ log "========================================"
 log "Starting INCREMENTAL backup at ${TIMESTAMP}"
 log "========================================"
 
-# Verify the sidecar container is running
-if ! docker inspect "${SIDECAR}" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
-    die "sidecar container '${SIDECAR}' is not running. Run: docker compose up -d infisical-pgbackrest"
+# Verify the postgres container is running
+if ! docker inspect "${POSTGRES}" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
+    die "container '${POSTGRES}' is not running. Run: docker compose up -d infisical-postgres"
 fi
 
 # Incremental backup to REPO1
 log "Backing up to REPO1 (local)..."
-docker exec "${SIDECAR}" \
+docker exec "${POSTGRES}" \
     pgbackrest \
         --stanza="${STANZA}" \
         --repo=1 \
@@ -38,7 +38,7 @@ log "REPO1 incremental backup complete"
 
 # Incremental backup to REPO2
 log "Backing up to REPO2 (Cloudflare R2)..."
-docker exec "${SIDECAR}" \
+docker exec "${POSTGRES}" \
     pgbackrest \
         --stanza="${STANZA}" \
         --repo=2 \

@@ -54,9 +54,15 @@ services:
       - pgbackrest_log:/var/log/pgbackrest
     environment:
       # Existing postgres vars inherited from base compose.
-      # pgBackRest env vars for archive-push (repo1 only):
+      # pgBackRest env vars — all repos, so backup commands run directly in this container:
       - PGBACKREST_REPO1_CIPHER_TYPE=aes-256-cbc
       - PGBACKREST_REPO1_CIPHER_PASS=${BACKREST_REPO1_CIPHER_PASS}
+      - PGBACKREST_REPO2_CIPHER_TYPE=aes-256-cbc
+      - PGBACKREST_REPO2_CIPHER_PASS=${BACKREST_REPO2_CIPHER_PASS}
+      - PGBACKREST_REPO2_S3_BUCKET=${BACKREST_R2_BUCKET}
+      - PGBACKREST_REPO2_S3_ENDPOINT=${BACKREST_R2_ENDPOINT}
+      - PGBACKREST_REPO2_S3_KEY=${BACKREST_R2_ACCESS_KEY}
+      - PGBACKREST_REPO2_S3_KEY_SECRET=${BACKREST_R2_SECRET_KEY}
       - PGBACKREST_PG1_PASSWORD=${INFISICAL_INTERNAL_DB_PASSWORD:-infisical_internal}
 
   # ---------------------------------------------------------------
@@ -75,8 +81,8 @@ services:
       infisical-postgres:
         condition: service_healthy
     volumes:
-      # Read-only access to live postgres data (for file-level backup)
-      - infisical-postgres-data:/var/lib/postgresql/data:ro
+      # Read-write access to postgres data (required for restore operations)
+      - infisical-postgres-data:/var/lib/postgresql/data
       # pgBackRest config (shared with postgres container)
       - ./backup/config/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
       # REPO1: local backup repository

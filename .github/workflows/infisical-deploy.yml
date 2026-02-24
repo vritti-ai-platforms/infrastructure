@@ -230,7 +230,7 @@ jobs:
             # Initialize pgBackRest stanza on first deploy (idempotent)
             echo "[BACKUP] Initializing pgBackRest stanza (safe to run multiple times)..."
             sleep 10
-            docker exec infisical-pgbackrest \
+            docker exec infisical-postgres \
               pgbackrest --stanza=infisical stanza-create 2>&1 || \
               echo "[BACKUP] Stanza already exists or not ready yet — run manually if needed"
 
