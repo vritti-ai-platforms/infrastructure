@@ -28,5 +28,5 @@ RUN apt-get update \
 # When Docker mounts a new named volume at /var/lib/pgbackrest, it copies
 # this directory structure (with ownership) into the volume on first use.
 # This ensures archive_command (running as the postgres OS user) can write WAL.
-RUN mkdir -p /var/lib/pgbackrest /var/log/pgbackrest /etc/pgbackrest \
-    && chown -R postgres:postgres /var/lib/pgbackrest /var/log/pgbackrest /etc/pgbackrest
+RUN mkdir -p /var/lib/pgbackrest /var/log/pgbackrest /etc/pgbackrest /tmp/pgbackrest \
+    && chown -R postgres:postgres /var/lib/pgbackrest /var/log/pgbackrest /etc/pgbackrest /tmp/pgbackrest
