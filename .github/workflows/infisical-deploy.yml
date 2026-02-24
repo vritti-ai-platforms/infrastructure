@@ -295,7 +295,7 @@ jobs:
 
           while [ $attempt -le $max_attempts ]; do
             echo "Attempt $attempt of $max_attempts..."
-            if curl -sf "https://${{ secrets.INFISICAL_SITE_URL }}/api/status" > /dev/null 2>&1; then
+            if curl -sf "${{ secrets.INFISICAL_SITE_URL }}/api/status" > /dev/null 2>&1; then
               echo "[OK] Health check passed!"
               exit 0
             fi
