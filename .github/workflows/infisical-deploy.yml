@@ -170,16 +170,15 @@ jobs:
             # Write backup/.env.backup for scripts that source it directly (backup-redis.sh etc.)
             echo "[STEP 6b] Writing backup/.env.backup..."
             mkdir -p backup
-            # Note: unquoted heredoc so GitHub Actions ${{ }} expressions are expanded
-            cat > backup/.env.backup <<BACKUP_ENV_EOF
-BACKREST_R2_ENDPOINT=${{ secrets.INFISICAL_BACKREST_R2_ENDPOINT }}
-BACKREST_R2_BUCKET=${{ secrets.INFISICAL_BACKREST_R2_BUCKET }}
-BACKREST_R2_ACCESS_KEY=${{ secrets.INFISICAL_BACKREST_R2_ACCESS_KEY }}
-BACKREST_R2_SECRET_KEY=${{ secrets.INFISICAL_BACKREST_R2_SECRET_KEY }}
-REDIS_BACKUP_LOCAL_DIR=/opt/vritti/backups/infisical/redis
-REDIS_CONTAINER=infisical-redis
-BACKUP_MAX_AGE_HOURS=26
-BACKUP_ENV_EOF
+            {
+              echo "BACKREST_R2_ENDPOINT=${{ secrets.INFISICAL_BACKREST_R2_ENDPOINT }}"
+              echo "BACKREST_R2_BUCKET=${{ secrets.INFISICAL_BACKREST_R2_BUCKET }}"
+              echo "BACKREST_R2_ACCESS_KEY=${{ secrets.INFISICAL_BACKREST_R2_ACCESS_KEY }}"
+              echo "BACKREST_R2_SECRET_KEY=${{ secrets.INFISICAL_BACKREST_R2_SECRET_KEY }}"
+              echo "REDIS_BACKUP_LOCAL_DIR=/opt/vritti/backups/infisical/redis"
+              echo "REDIS_CONTAINER=infisical-redis"
+              echo "BACKUP_MAX_AGE_HOURS=26"
+            } > backup/.env.backup
             chmod 600 backup/.env.backup
             echo "[OK] backup/.env.backup written"
 
