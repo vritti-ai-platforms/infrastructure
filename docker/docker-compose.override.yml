@@ -40,7 +40,7 @@ services:
       - -c
       - archive_mode=on
       - -c
-      - "archive_command=pgbackrest --stanza=infisical --repo=1 archive-push %p"
+      - "archive_command=pgbackrest --stanza=infisical archive-push %p"
       - -c
       - archive_timeout=60
     volumes:
