@@ -216,7 +216,7 @@ jobs:
 
             # Build the custom postgres+pgBackRest image
             echo "[STEP 8c] Building custom postgres+pgBackRest image..."
-            docker compose build infisical-postgres infisical-pgbackrest
+            docker compose build infisical-postgres
             echo "[OK] Custom image built"
 
             # Stop existing containers if running
