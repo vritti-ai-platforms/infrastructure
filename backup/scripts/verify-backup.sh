@@ -34,24 +34,14 @@ if ! docker inspect "${POSTGRES}" --format='{{.State.Running}}' 2>/dev/null | gr
     exit 2
 fi
 
-# --- Check REPO1 (local) WAL archiving ---
-log "Checking REPO1 WAL archive connectivity..."
+# --- Check WAL archiving across all repos ---
+log "Checking WAL archive connectivity (all repos)..."
 if docker exec -u postgres "${POSTGRES}" \
-    pgbackrest --stanza="${STANZA}" --repo=1 check \
+    pgbackrest --stanza="${STANZA}" check \
     --log-level-console=warn 2>&1; then
-    log "REPO1 WAL archive check: OK"
+    log "WAL archive check: OK (REPO1 + REPO2)"
 else
-    err "REPO1 WAL archive check FAILED — archive_command may not be working"
-fi
-
-# --- Check REPO2 (R2) connectivity ---
-log "Checking REPO2 (R2) connectivity..."
-if docker exec -u postgres "${POSTGRES}" \
-    pgbackrest --stanza="${STANZA}" --repo=2 check \
-    --log-level-console=warn 2>&1; then
-    log "REPO2 connectivity check: OK"
-else
-    warn "REPO2 (R2) connectivity check FAILED — check R2 credentials and endpoint"
+    err "WAL archive check FAILED — archive_command may not be working or R2 unreachable"
 fi
 
 # --- Check backup age ---
