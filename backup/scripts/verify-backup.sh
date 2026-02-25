@@ -51,7 +51,8 @@ echo "${INFO_OUTPUT}"
 
 # Find the most recent backup stop time in the info output
 # Format: "timestamp start/stop: 2026-02-24 13:34:29+00 / 2026-02-24 13:34:38+00"
-LAST_STOP=$(echo "${INFO_OUTPUT}" | grep "timestamp start/stop:" | tail -1 | awk '{print $6, $7}')
+# || true prevents set -e from exiting if grep finds no match
+LAST_STOP=$(echo "${INFO_OUTPUT}" | grep "timestamp start/stop:" | tail -1 | awk '{print $6, $7}' || true)
 
 if [[ -z "${LAST_STOP}" ]]; then
     err "No backups found in any repo — run backup-full.sh to create the first backup"
