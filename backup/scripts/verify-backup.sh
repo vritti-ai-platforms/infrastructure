@@ -50,7 +50,8 @@ INFO_OUTPUT=$(docker exec -u postgres "${POSTGRES}" pgbackrest --stanza="${STANZ
 echo "${INFO_OUTPUT}"
 
 # Find the most recent backup stop time in the info output
-LAST_STOP=$(echo "${INFO_OUTPUT}" | grep "timestamp stop:" | tail -1 | awk '{print $3, $4}')
+# Format: "timestamp start/stop: 2026-02-24 13:34:29+00 / 2026-02-24 13:34:38+00"
+LAST_STOP=$(echo "${INFO_OUTPUT}" | grep "timestamp start/stop:" | tail -1 | awk '{print $6, $7}')
 
 if [[ -z "${LAST_STOP}" ]]; then
     err "No backups found in any repo — run backup-full.sh to create the first backup"
