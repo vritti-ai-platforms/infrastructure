@@ -56,8 +56,8 @@ LAST_STOP=$(echo "${INFO_OUTPUT}" | grep "timestamp start/stop:" | tail -1 | awk
 if [[ -z "${LAST_STOP}" ]]; then
     err "No backups found in any repo — run backup-full.sh to create the first backup"
 else
-    # Parse timestamp and check age
-    LAST_EPOCH=$(date -d "${LAST_STOP}" +%s 2>/dev/null || echo 0)
+    # Parse timestamp and check age (strip +00 timezone suffix, interpret as UTC)
+    LAST_EPOCH=$(date -d "${LAST_STOP%+00} UTC" +%s 2>/dev/null || echo 0)
     NOW_EPOCH=$(date +%s)
     AGE_HOURS=$(( (NOW_EPOCH - LAST_EPOCH) / 3600 ))
 
