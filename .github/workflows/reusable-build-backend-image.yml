@@ -95,7 +95,7 @@ jobs:
           BRANCH_NAME=${GITHUB_REF_NAME}
 
           # Read version from specified package.json path
-          VERSION=$(node -p "require('${{ inputs.package_json_path }}').version")
+          VERSION=$(jq -r '.version' "${{ inputs.package_json_path }}")
           VERSION_TAG="${VERSION}-${BRANCH_NAME}"
 
           echo "branch=${BRANCH_NAME}" >> $GITHUB_OUTPUT
