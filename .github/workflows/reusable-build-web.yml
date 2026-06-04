@@ -31,13 +31,13 @@ on:
     outputs:
       image_ref:
         description: 'Full pushed ref (repo:latest-<branch>)'
-        value: ${{ jobs.publish.outputs.image_ref }}
+        value: ${{ jobs.build.outputs.image_ref }}
 
 env:
   REGISTRY: ghcr.io
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
