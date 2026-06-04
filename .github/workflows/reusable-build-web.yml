@@ -53,6 +53,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
+      - name: Lint (blocking)
+        run: pnpm lint
+
       - name: Build
         run: ${{ inputs.build_command }}
         env:
