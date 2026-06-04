@@ -1,0 +1,76 @@
+name: Deploy (manual)
+
+# Manually (re)deploy a product's backend container(s) on the VM.
+# Pulls the chosen image tag from GHCR and restarts just those services via
+# docker compose. Env + secrets live on the VM in /opt/vritti/{cloud,core}/.env
+# (this workflow never touches them).
+#
+#   vritti-cloud -> cloud-server
+#   vritti-core  -> core-server + commerce-service
+
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: Which application to (re)deploy
+        type: choice
+        required: true
+        options:
+          - vritti-cloud
+          - vritti-core
+      image_tag:
+        description: 'Image tag to run (e.g. latest-main or 1.4.2-main)'
+        type: string
+        required: true
+        default: latest-main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: SSH → pull & restart on the VM
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          PRODUCT: ${{ inputs.product }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        with:
+          host: ${{ secrets.SERVER_VM_HOST }}
+          username: ${{ secrets.SERVER_VM_USER }}
+          key: ${{ secrets.SERVER_VM_SSH_KEY }}
+          envs: PRODUCT,IMAGE_TAG,GHCR_TOKEN,GHCR_USER
+          script: |
+            set -euo pipefail
+            cd /opt/vritti
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+            if [ "$PRODUCT" = "vritti-cloud" ]; then
+              export CLOUD_IMAGE_TAG="$IMAGE_TAG"
+              SERVICES="cloud-server"
+            else
+              export CORE_IMAGE_TAG="$IMAGE_TAG"
+              SERVICES="core-server commerce-service"
+            fi
+
+            echo "Deploying [$PRODUCT] -> $SERVICES @ $IMAGE_TAG"
+            docker compose pull $SERVICES
+            docker compose up -d --no-deps $SERVICES
+
+            echo "Waiting for health..."
+            sleep 12
+            docker compose ps $SERVICES
+            for s in $SERVICES; do
+              docker compose logs --tail=20 "$s" || true
+            done
+
+            docker image prune -f
+            echo "Done."
+
+      - name: Summary
+        run: |
+          echo "## Deploy ${{ inputs.product }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Tag:** \`${{ inputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Host:** \`${{ secrets.SERVER_VM_HOST }}\`" >> "$GITHUB_STEP_SUMMARY"

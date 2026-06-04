@@ -123,8 +123,10 @@ jobs:
           username: ${{ secrets.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
           script: |
-            echo " Reloading Nginx..."
-            sudo nginx -t && sudo systemctl reload nginx
+            echo "Reloading Nginx (containerized)..."
+            # Static files are a read-only volume mount, so new files are already
+            # visible inside the container; this just refreshes nginx workers.
+            docker exec nginx nginx -t && docker exec nginx nginx -s reload || true
             echo "[OK] Nginx reloaded"
 
       - name: Health check

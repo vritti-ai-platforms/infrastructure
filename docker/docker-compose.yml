@@ -1,223 +1,148 @@
-# Production Docker Compose Configuration
-# Used by: GitHub Actions workflow (vm-setup.yml) on Linux VM
-# Platform: Uses native architecture of the VM (typically linux/amd64)
+# Vritti shared stack — single VM, both products behind one nginx.
+# Postgres runs NATIVELY on the host; containers reach it via host.docker.internal.
+#
+# Layout on the VM (compose runs from /opt/vritti):
+#   /opt/vritti/docker-compose.yml
+#   /opt/vritti/.env            <- compose interpolation (image tags, REDIS_PASSWORD)
+#   /opt/vritti/cloud/.env      <- cloud-server runtime env
+#   /opt/vritti/core/.env       <- core-server + commerce-service runtime env
+#   /opt/vritti/www/{cloud,core}  <- static frontends (served by nginx)
+#   /opt/vritti/ssl, /opt/vritti/logs, /opt/vritti/letsencrypt
+#
+# Memory note: with native Postgres (~400M) + this stack on a 2 GB VM you are at
+# the ceiling — a swapfile is REQUIRED (see DEPLOY.md). 4 GB recommended.
+
+name: vritti
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
-  # Nginx Reverse Proxy & Static File Server
   nginx:
-    image: ghcr.io/${GITHUB_ORG:-yourorg}/nginx:latest
+    image: nginx:1.27-alpine
     container_name: nginx
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      # Static files (read-only)
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./www:/usr/share/nginx/html:ro
-      # SSL certificates (read-only)
       - ./ssl:/etc/nginx/ssl:ro
-      # Logs (read-write)
       - ./logs/nginx:/var/log/nginx
-      # Let's Encrypt challenge directory
       - ./letsencrypt:/var/www/letsencrypt:ro
     depends_on:
-      api-nexus:
+      cloud-server:
         condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - vritti-network
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:443/api/"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
+      core-server:
+        condition: service_healthy
+    networks: [vritti]
+    mem_limit: 96m
+    logging: *logging
 
-  # API Service
-  api-nexus:
-    image: ghcr.io/${GITHUB_ORG:-yourorg}/api-nexus:${API_VERSION:-latest}
-    container_name: api-nexus
+  cloud-server:
+    image: ghcr.io/vritti-ai-platforms/cloud-server:${CLOUD_IMAGE_TAG:-latest-main}
+    container_name: cloud-server
     restart: unless-stopped
-    # NO PORT EXPOSURE - only accessible via internal Docker network
-    expose:
-      - "3000"
+    env_file: [./cloud/.env]
     environment:
-      # Runtime settings
-      - NODE_ENV=development
+      - NODE_ENV=production
       - PORT=3000
-      # Database Configuration
-      - PRIMARY_DB_HOST=${PRIMARY_DB_HOST}
-      - PRIMARY_DB_PORT=${PRIMARY_DB_PORT:-5432}
-      - PRIMARY_DB_USERNAME=${PRIMARY_DB_USERNAME}
-      - PRIMARY_DB_PASSWORD=${PRIMARY_DB_PASSWORD}
-      - PRIMARY_DB_DATABASE=${PRIMARY_DB_DATABASE:-saas_db}
-      - PRIMARY_DB_SCHEMA=${PRIMARY_DB_SCHEMA:-cloud}
-      - PRIMARY_DB_SSL_MODE=${PRIMARY_DB_SSL_MODE:-require}
-      # Security Secrets
-      - JWT_SECRET=${JWT_SECRET}
-      - COOKIE_SECRET=${COOKIE_SECRET}
-      - CSRF_HMAC_KEY=${CSRF_HMAC_KEY}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
-      # JWT Configuration
-      - JWT_ACCESS_EXPIRY=${JWT_ACCESS_EXPIRY:-15m}
-      - JWT_REFRESH_EXPIRY=${JWT_REFRESH_EXPIRY:-30d}
-      - JWT_SIGNUP_EXPIRY=${JWT_SIGNUP_EXPIRY:-2h}
-      - REFRESH_TOKEN_ROTATION_DAYS=${REFRESH_TOKEN_ROTATION_DAYS:-7}
-      # Cookie Configuration
-      - REFRESH_COOKIE_NAME=${REFRESH_COOKIE_NAME:-vritti_refresh}
-      - REFRESH_COOKIE_SECURE=${REFRESH_COOKIE_SECURE:-true}
-      - REFRESH_COOKIE_DOMAIN=${REFRESH_COOKIE_DOMAIN}
-      # WebAuthn/Passkey Configuration
-      - WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME:-Vritti}
-      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID}
-      - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN}
-      # External Services - Email
-      - BREVO_API_KEY=${BREVO_API_KEY}
-      - SENDER_EMAIL=${SENDER_EMAIL:-noreply@vrittiai.com}
-      - SENDER_NAME=${SENDER_NAME:-Vritti}
-      # External Services - SMS
-      - SMS_PROVIDER_API_KEY=${SMS_PROVIDER_API_KEY}
-      # Logging
-      - LOG_PROVIDER=${LOG_PROVIDER:-winston}
-      - LOG_TO_FILE=${LOG_TO_FILE:-true}
-      - LOG_FILE_PATH=${LOG_FILE_PATH:-/app/logs}
-      - LOG_MAX_FILES=${LOG_MAX_FILES:-14d}
-      - MASK_PII=${MASK_PII:-true}
-      # OAuth Configuration
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - GOOGLE_CALLBACK_URL=${GOOGLE_CALLBACK_URL}
-      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID}
-      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET}
-      - MICROSOFT_CALLBACK_URL=${MICROSOFT_CALLBACK_URL}
-      - FACEBOOK_CLIENT_ID=${FACEBOOK_CLIENT_ID}
-      - FACEBOOK_CLIENT_SECRET=${FACEBOOK_CLIENT_SECRET}
-      - FACEBOOK_CALLBACK_URL=${FACEBOOK_CALLBACK_URL}
-      - X_CLIENT_ID=${X_CLIENT_ID}
-      - X_CLIENT_SECRET=${X_CLIENT_SECRET}
-      - X_CALLBACK_URL=${X_CALLBACK_URL}
-      - APPLE_CLIENT_ID=${APPLE_CLIENT_ID}
-      - APPLE_TEAM_ID=${APPLE_TEAM_ID}
-      - APPLE_KEY_ID=${APPLE_KEY_ID}
-      - APPLE_PRIVATE_KEY=${APPLE_PRIVATE_KEY}
-      - APPLE_CALLBACK_URL=${APPLE_CALLBACK_URL}
-      # WhatsApp Configuration
-      - WHATSAPP_PHONE_NUMBER_ID=${WHATSAPP_PHONE_NUMBER_ID}
-      - WHATSAPP_ACCESS_TOKEN=${WHATSAPP_ACCESS_TOKEN}
-      - WHATSAPP_APP_SECRET=${WHATSAPP_APP_SECRET}
-      - WHATSAPP_API_VERSION=${WHATSAPP_API_VERSION}
-      - WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
-      # Bcrypt Configuration
-      - BCRYPT_SALT_ROUNDS=${BCRYPT_SALT_ROUNDS:-10}
-      # Frontend Configuration
-      - FRONTEND_BASE_URL=${FRONTEND_BASE_URL}
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach native Postgres on the host
+    expose: ["3000"]
+    volumes:
+      - ./logs/cloud:/app/logs
+    networks: [vritti]
+    mem_limit: 384m
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - vritti-network
+    logging: *logging
 
-  # Auth microservice (if separate from api-nexus)
-  # vritti-auth-service:
-  #   image: ghcr.io/${GITHUB_ORG:-yourorg}/vritti-auth-service:${AUTH_VERSION:-latest}
-  #   container_name: vritti-auth-service
-  #   restart: unless-stopped
-  #   ports:
-  #     - "127.0.0.1:3001:3001"
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     - NODE_ENV=production
-  #     - PORT=3001
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 256M
-  #   healthcheck:
-  #     test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
-  #   networks:
-  #     - vritti-network
+  core-server:
+    image: ghcr.io/vritti-ai-platforms/core-server:${CORE_IMAGE_TAG:-latest-main}
+    container_name: core-server
+    restart: unless-stopped
+    env_file: [./core/.env]
+    environment:
+      - NODE_ENV=production
+      - PORT=3002
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    expose: ["3002"]
+    volumes:
+      - ./logs/core:/app/logs
+    depends_on:
+      nats:
+        condition: service_started
+      redis:
+        condition: service_started
+    networks: [vritti]
+    mem_limit: 384m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3002/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging: *logging
 
-  # Billing microservice
-  # vritti-billing-service:
-  #   image: ghcr.io/${GITHUB_ORG:-yourorg}/vritti-billing-service:${BILLING_VERSION:-latest}
-  #   container_name: vritti-billing-service
-  #   restart: unless-stopped
-  #   ports:
-  #     - "127.0.0.1:3002:3002"
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     - NODE_ENV=production
-  #     - PORT=3002
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 256M
-  #   healthcheck:
-  #     test: ["CMD", "wget", "-q", "--spider", "http://localhost:3002/health"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
-  #   networks:
-  #     - vritti-network
+  commerce-service:
+    image: ghcr.io/vritti-ai-platforms/commerce-service:${CORE_IMAGE_TAG:-latest-main}
+    container_name: commerce-service
+    restart: unless-stopped
+    env_file: [./core/.env]
+    environment:
+      - NODE_ENV=production
+      - APP_NAME=commerce-service
+      # If commerce uses its OWN Postgres schema, override it here:
+      # - PRIMARY_DB_SCHEMA=commerce
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      nats:
+        condition: service_started
+    networks: [vritti]
+    mem_limit: 256m
+    logging: *logging
 
-  # Notification microservice
-  # vritti-notification-service:
-  #   image: ghcr.io/${GITHUB_ORG:-yourorg}/vritti-notification-service:${NOTIFICATION_VERSION:-latest}
-  #   container_name: vritti-notification-service
-  #   restart: unless-stopped
-  #   ports:
-  #     - "127.0.0.1:3003:3003"
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     - NODE_ENV=production
-  #     - PORT=3003
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 256M
-  #   healthcheck:
-  #     test: ["CMD", "wget", "-q", "--spider", "http://localhost:3003/health"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
-  #   networks:
-  #     - vritti-network
+  nats:
+    image: nats:2.10-alpine
+    container_name: nats
+    restart: unless-stopped
+    expose: ["4222"]          # internal only — never published to the host
+    networks: [vritti]
+    mem_limit: 96m
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in /opt/vritti/.env}
+    expose: ["6379"]          # internal only
+    networks: [vritti]
+    mem_limit: 160m
+    logging: *logging
 
 networks:
-  vritti-network:
+  vritti:
     name: vritti-network
     driver: bridge
