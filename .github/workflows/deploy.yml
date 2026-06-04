@@ -1,12 +1,11 @@
 name: Deploy (manual)
 
-# Manually (re)deploy a product's backend container(s) on the VM.
-# Pulls the chosen image tag from GHCR and restarts just those services via
-# docker compose. Env + secrets live on the VM in /opt/vritti/{cloud,core}/.env
-# (this workflow never touches them).
+# Manually ship a product to the VM. Backend = pull image + docker compose up -d.
+# Frontend = oras pull the .tar.gz from GHCR + extract into /opt/vritti/www/<dir>.
+# Env/secrets live on the VM in /opt/vritti/{cloud,core}/.env (untouched here).
 #
-#   vritti-cloud -> cloud-server
-#   vritti-core  -> core-server + commerce-service
+#   vritti-cloud -> cloud-server   + cloud-web (www/cloud)
+#   vritti-core  -> core-server, commerce-service + core-web (www/core)
 
 on:
   workflow_dispatch:
@@ -18,8 +17,17 @@ on:
         options:
           - vritti-cloud
           - vritti-core
+      target:
+        description: What to ship
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - backend
+          - frontend
       image_tag:
-        description: 'Image tag to run (e.g. latest-main or 1.4.2-main)'
+        description: 'Tag to deploy (e.g. latest-main or main-ab12cd3)'
         type: string
         required: true
         default: latest-main
@@ -29,48 +37,62 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: SSH → pull & restart on the VM
+      - name: SSH → pull & ship on the VM
         uses: appleboy/ssh-action@v1.0.3
         env:
           PRODUCT: ${{ inputs.product }}
+          TARGET: ${{ inputs.target }}
           IMAGE_TAG: ${{ inputs.image_tag }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GHCR_USER: ${{ github.actor }}
+          GHCR_OWNER: ${{ github.repository_owner }}
         with:
           host: ${{ secrets.SERVER_VM_HOST }}
           username: ${{ secrets.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
-          envs: PRODUCT,IMAGE_TAG,GHCR_TOKEN,GHCR_USER
+          envs: PRODUCT,TARGET,IMAGE_TAG,GHCR_TOKEN,GHCR_USER,GHCR_OWNER
           script: |
             set -euo pipefail
             cd /opt/vritti
+            OWNER=$(echo "$GHCR_OWNER" | tr '[:upper:]' '[:lower:]')
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 
-            if [ "$PRODUCT" = "vritti-cloud" ]; then
-              export CLOUD_IMAGE_TAG="$IMAGE_TAG"
-              SERVICES="cloud-server"
-            else
-              export CORE_IMAGE_TAG="$IMAGE_TAG"
-              SERVICES="core-server commerce-service"
+            case "$PRODUCT" in
+              vritti-cloud)
+                export CLOUD_IMAGE_TAG="$IMAGE_TAG"
+                SERVICES="cloud-server"; WEB_REPO="ghcr.io/${OWNER}/cloud-web"; WEB_DIR="cloud" ;;
+              vritti-core)
+                export CORE_IMAGE_TAG="$IMAGE_TAG"
+                SERVICES="core-server commerce-service"; WEB_REPO="ghcr.io/${OWNER}/core-web"; WEB_DIR="core" ;;
+            esac
+
+            # ---- Backend ----
+            if [ "$TARGET" != "frontend" ]; then
+              echo "[backend] $SERVICES @ $IMAGE_TAG"
+              docker compose pull $SERVICES
+              docker compose up -d --no-deps $SERVICES
+              sleep 10
+              docker compose ps $SERVICES
             fi
 
-            echo "Deploying [$PRODUCT] -> $SERVICES @ $IMAGE_TAG"
-            docker compose pull $SERVICES
-            docker compose up -d --no-deps $SERVICES
-
-            echo "Waiting for health..."
-            sleep 12
-            docker compose ps $SERVICES
-            for s in $SERVICES; do
-              docker compose logs --tail=20 "$s" || true
-            done
+            # ---- Frontend (pull tarball from GHCR, extract into www) ----
+            if [ "$TARGET" != "backend" ]; then
+              echo "[frontend] ${WEB_REPO}:${IMAGE_TAG} -> /opt/vritti/www/${WEB_DIR}"
+              TMP=$(mktemp -d)
+              # oras reuses the docker login above for GHCR auth
+              oras pull "${WEB_REPO}:${IMAGE_TAG}" -o "$TMP"
+              mkdir -p "/opt/vritti/www/${WEB_DIR}"
+              find "/opt/vritti/www/${WEB_DIR}" -mindepth 1 -delete
+              tar -xzf "$TMP/web.tar.gz" -C "/opt/vritti/www/${WEB_DIR}"
+              rm -rf "$TMP"
+              docker exec nginx nginx -s reload 2>/dev/null || true
+            fi
 
             docker image prune -f
-            echo "Done."
+            echo "Done: $PRODUCT ($TARGET) @ $IMAGE_TAG"
 
       - name: Summary
         run: |
-          echo "## Deploy ${{ inputs.product }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Deploy ${{ inputs.product }} — ${{ inputs.target }}" >> "$GITHUB_STEP_SUMMARY"
           echo "**Tag:** \`${{ inputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "**Host:** \`${{ secrets.SERVER_VM_HOST }}\`" >> "$GITHUB_STEP_SUMMARY"

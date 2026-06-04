@@ -23,10 +23,10 @@ host** and **Redis + NATS** as containers.
 
 | Trigger | Workflow | Does |
 |---|---|---|
-| Push to `main` (each app repo) | `build.yml` | `nx affected` → build+push **server images** to GHCR; build+sync **web** static to the VM |
-| Manual (infra repo → Actions → **Deploy**) | `deploy.yml` | pick `vritti-cloud`/`vritti-core` + tag → SSH → `docker compose pull` + `up -d` those server containers |
+| Push to `main` (each app repo) | `build.yml` | `nx affected` → push **server images** + **web `.tar.gz`** to GHCR (no VM contact) |
+| Manual (infra repo → Actions → **Deploy**) | `deploy.yml` | pick product + target + tag → SSH → pull image(s) + `up -d`, and `oras pull` the web bundle into `www/` |
 
-Servers are gated behind the manual Deploy. Frontends auto-publish on merge (static, low-risk).
+Nothing reaches the VM on merge — both backend images and web bundles land in GHCR and are shipped only via the manual Deploy. `target` lets you ship `all`, `backend`, or `frontend`.
 
 ---
 
@@ -40,6 +40,15 @@ sudo chown -R "$USER":"$USER" /opt/vritti
 # copy nginx config (mounted into the stock nginx:alpine container):
 #   infrastructure/nginx/nginx.conf          -> /opt/vritti/nginx/nginx.conf
 #   infrastructure/nginx/conf.d/default.conf -> /opt/vritti/nginx/conf.d/default.conf
+```
+
+### 1b. Install oras (pulls web bundles from GHCR)
+```bash
+VER=1.2.0
+curl -sLO "https://github.com/oras-project/oras/releases/download/v${VER}/oras_${VER}_linux_amd64.tar.gz"
+mkdir -p oras-install && tar -xzf "oras_${VER}_linux_amd64.tar.gz" -C oras-install
+sudo mv oras-install/oras /usr/local/bin/ && rm -rf oras-install "oras_${VER}_linux_amd64.tar.gz"
+oras version
 ```
 
 ### 2. Swap — REQUIRED on a 2 GB box
@@ -147,7 +156,7 @@ using the built-in `GITHUB_TOKEN` (no PAT needed for push).
 
 - **Ship a backend change:** merge to `main` → image builds automatically → Actions →
   **Deploy** → pick product + tag (`latest-main` or a pinned `X.Y.Z-main`).
-- **Ship a frontend change:** merge to `main` → static auto-syncs to the VM.
+- **Ship a frontend change:** merge to `main` → web `.tar.gz` pushed to GHCR → run **Deploy** with `target: frontend` (or `all`) to pull + extract it.
 - **Roll back:** run **Deploy** with a previous image tag.
 - **Change nginx routing/config:** edit `/opt/vritti/nginx/conf.d/default.conf` on the VM
   (or scp it from `infrastructure/nginx/`), then
