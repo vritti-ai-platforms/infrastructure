@@ -110,24 +110,13 @@ sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/vritti.sh
 DNS (Cloudflare): A records `cloud`, `admin`, and `*.dev` → the VM IP.
 
 ### 5. Env files on the VM
-```bash
-# compose interpolation (image tags + redis password)
-cat > /opt/vritti/.env <<'EOF'
-CLOUD_IMAGE_TAG=latest-main
-CORE_IMAGE_TAG=latest-main
-REDIS_PASSWORD=CHANGE_ME_REDIS_PASSWORD
-EOF
-chmod 600 /opt/vritti/.env
+**Nothing to create by hand** — the Deploy workflow writes every env file on the VM:
+- `cloud/.env`, `core/.env`, `service/.env` ← from the `CLOUD_ENV` / `CORE_ENV` / `SERVICE_ENV` secrets (base64).
+- `/opt/vritti/.env` ← `REDIS_PASSWORD` from the `REDIS_PASSWORD` secret (image tag comes from the deploy input).
 
-# per-stack runtime env (fill in every CHANGE_ME)
-cp cloud/.env.example /opt/vritti/cloud/.env   # from infrastructure/docker/cloud/.env.example
-cp core/.env.example  /opt/vritti/core/.env
-chmod 600 /opt/vritti/cloud/.env /opt/vritti/core/.env
-# REDIS_URL passwords in both files must match REDIS_PASSWORD above
-# NOTE: only cloud + core get a deploy .env. commerce-service shares core/.env
-#       (see service/.env.example for the subset it validates); commerce-mf is a
-#       static remote with no env (see mf/.env.example). Nothing to copy for those.
-```
+⚠️ The `REDIS_PASSWORD` secret **must equal** the password embedded in the `REDIS_URL`s inside `CLOUD_ENV` /
+`CORE_ENV`, or the apps can't authenticate to Redis.
+> commerce-mf is a static remote with no env (see `mf/.env.example`).
 
 ### 6. First boot
 ```bash

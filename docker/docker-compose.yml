@@ -3,10 +3,12 @@
 #
 # Layout on the VM (compose runs from /opt/vritti):
 #   /opt/vritti/docker-compose.yml
-#   /opt/vritti/.env            <- compose interpolation (image tags, REDIS_PASSWORD)
-#   /opt/vritti/cloud/.env      <- cloud-server runtime env
-#   /opt/vritti/core/.env       <- core-server + commerce-service runtime env
+#   /opt/vritti/.env            <- compose interpolation (image tags, REDIS_PASSWORD) — MANUAL
+#   /opt/vritti/cloud/.env      <- cloud-server      env  (written by Deploy from CLOUD_ENV)
+#   /opt/vritti/core/.env       <- core-server       env  (written by Deploy from CORE_ENV)
+#   /opt/vritti/service/.env    <- commerce-service  env  (written by Deploy from SERVICE_ENV)
 #   /opt/vritti/www/{cloud,core}  <- static frontends (served by nginx)
+#   /opt/vritti/geoip/GeoLite2-City.mmdb  <- shipped by Deploy (Git LFS)
 #   /opt/vritti/ssl, /opt/vritti/logs, /opt/vritti/letsencrypt
 #
 # Memory note: with native Postgres (~400M) + this stack on a 2 GB VM you are at
@@ -101,7 +103,7 @@ services:
     image: ghcr.io/vritti-ai-platforms/commerce-service:${CORE_IMAGE_TAG:-latest-main}
     container_name: commerce-service
     restart: unless-stopped
-    env_file: [./core/.env]
+    env_file: [./service/.env]
     environment:
       - NODE_ENV=production
       - APP_NAME=commerce-service

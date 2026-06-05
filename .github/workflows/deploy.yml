@@ -65,16 +65,32 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GHCR_USER: ${{ github.actor }}
           GHCR_OWNER: ${{ github.repository_owner }}
+          CLOUD_ENV: ${{ secrets.CLOUD_ENV }}
+          CORE_ENV: ${{ secrets.CORE_ENV }}
+          SERVICE_ENV: ${{ secrets.SERVICE_ENV }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
         with:
           host: ${{ vars.SERVER_VM_HOST }}
           username: ${{ vars.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
-          envs: PRODUCT,TARGET,IMAGE_TAG,GHCR_TOKEN,GHCR_USER,GHCR_OWNER
+          envs: PRODUCT,TARGET,IMAGE_TAG,GHCR_TOKEN,GHCR_USER,GHCR_OWNER,CLOUD_ENV,CORE_ENV,SERVICE_ENV,REDIS_PASSWORD
           script: |
             set -euo pipefail
             cd /opt/vritti
             OWNER=$(echo "$GHCR_OWNER" | tr '[:upper:]' '[:lower:]')
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+            # ---- compose-interpolation env: keep REDIS_PASSWORD in /opt/vritti/.env (redis --requirepass) ----
+            umask 077
+            if [ -n "${REDIS_PASSWORD:-}" ]; then
+              touch /opt/vritti/.env && chmod 600 /opt/vritti/.env
+              if grep -q '^REDIS_PASSWORD=' /opt/vritti/.env; then
+                sed -i "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=${REDIS_PASSWORD}|" /opt/vritti/.env
+              else
+                echo "REDIS_PASSWORD=${REDIS_PASSWORD}" >> /opt/vritti/.env
+              fi
+              echo "REDIS_PASSWORD set in /opt/vritti/.env"
+            fi
 
             case "$PRODUCT" in
               vritti-cloud)
@@ -85,8 +101,21 @@ jobs:
                 SERVICES="core-server commerce-service"; WEB_REPO="ghcr.io/${OWNER}/core-web"; WEB_DIR="core" ;;
             esac
 
-            # ---- Backend ----
+            # ---- Backend: write .env from secrets, then pull + restart ----
             if [ "$TARGET" != "frontend" ]; then
+              umask 077
+              # decode a base64 secret to a 0600 file; skip (don't wipe) if the secret is empty
+              write_env() {
+                if [ -z "$2" ]; then echo "skip $1 (secret empty)"; return 0; fi
+                mkdir -p "$(dirname "$1")"
+                printf '%s' "$2" | base64 -d > "$1.tmp" && mv "$1.tmp" "$1" && chmod 600 "$1" && echo "wrote $1"
+              }
+              case "$PRODUCT" in
+                vritti-cloud) write_env /opt/vritti/cloud/.env "$CLOUD_ENV" ;;
+                vritti-core)  write_env /opt/vritti/core/.env "$CORE_ENV"
+                              write_env /opt/vritti/service/.env "$SERVICE_ENV" ;;
+              esac
+
               echo "[backend] $SERVICES @ $IMAGE_TAG"
               docker compose pull $SERVICES
               docker compose up -d --no-deps $SERVICES
