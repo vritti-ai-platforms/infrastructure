@@ -119,8 +119,11 @@ jobs:
               echo "[backend] $SERVICES @ $IMAGE_TAG"
               docker compose pull $SERVICES
               docker compose up -d --no-deps $SERVICES
+              # ensure shared infra is up (idempotent — no-op once running). nginx has no
+              # depends_on, so it starts even if the other product isn't deployed yet.
+              docker compose up -d nats redis nginx
               sleep 10
-              docker compose ps $SERVICES
+              docker compose ps
             fi
 
             # ---- Frontend (pull tarball from GHCR, extract into www) ----

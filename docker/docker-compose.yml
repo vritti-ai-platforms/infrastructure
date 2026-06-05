@@ -37,11 +37,9 @@ services:
       - ./ssl:/etc/nginx/ssl:ro
       - ./logs/nginx:/var/log/nginx
       - ./letsencrypt:/var/www/letsencrypt:ro
-    depends_on:
-      cloud-server:
-        condition: service_healthy
-      core-server:
-        condition: service_healthy
+    # No depends_on: nginx resolves backends at request time (variable proxy_pass + 127.0.0.11
+    # resolver), so it boots independently and 502s a down backend — lets it come up before/without
+    # both products being deployed.
     networks: [vritti]
     mem_limit: 96m
     logging: *logging
