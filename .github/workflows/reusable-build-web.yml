@@ -28,6 +28,11 @@ on:
         required: false
         type: string
         default: ''
+      mf_base_url:
+        description: 'Module-federation origin baked into a HOST app as PUBLIC_MF_BASE_URL (e.g. https://mf.dev.vrittiai.com). Leave empty for non-host apps.'
+        required: false
+        type: string
+        default: ''
     outputs:
       image_ref:
         description: 'Full pushed ref (repo:latest-<branch>)'
@@ -61,6 +66,7 @@ jobs:
         env:
           NODE_ENV: production
           PUBLIC_API_HOST: ${{ inputs.production_domain }}
+          PUBLIC_MF_BASE_URL: ${{ inputs.mf_base_url }}
 
       - name: Pack tarball
         run: |
