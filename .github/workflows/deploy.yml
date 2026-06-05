@@ -37,14 +37,26 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      # GeoIP DB lives in this repo (docker/geoip/) — copy it to the VM so cloud-server can mount it.
-      # Only needed for cloud backend deploys; core doesn't use GeoIP.
-      - name: Checkout (for the GeoIP DB)
-        if: inputs.product == 'vritti-cloud' && inputs.target != 'frontend'
+      # Checkout the infra repo: needed to ship the nginx config (every deploy) and
+      # the GeoIP DB (cloud backend deploys). lfs:true pulls the real GeoLite2 DB.
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          lfs: true   # pull the real GeoLite2 DB, not the LFS pointer
+          lfs: true
 
+      # Ship the nginx config on every deploy so repo changes to nginx.conf / conf.d
+      # actually reach the VM. The SSH step below validates the config and reloads nginx.
+      - name: Ship nginx config to /opt/vritti/nginx
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.SERVER_VM_HOST }}
+          username: ${{ vars.SERVER_VM_USER }}
+          key: ${{ secrets.SERVER_VM_SSH_KEY }}
+          source: nginx          # whole dir → /opt/vritti/nginx/
+          target: /opt/vritti/
+
+      # GeoIP DB lives in this repo (docker/geoip/) — copy it to the VM so cloud-server can mount it.
+      # Only needed for cloud backend deploys; core doesn't use GeoIP.
       - name: Copy GeoIP DB to the VM
         if: inputs.product == 'vritti-cloud' && inputs.target != 'frontend'
         uses: appleboy/scp-action@v0.1.7
@@ -152,6 +164,16 @@ jobs:
               done
 
               docker exec nginx nginx -s reload 2>/dev/null || true
+            fi
+
+            # ---- Apply the nginx config shipped above: validate, then reload ----
+            # `nginx -t` fails the deploy on a bad config instead of reloading a broken one.
+            if docker exec nginx nginx -t; then
+              docker exec nginx nginx -s reload 2>/dev/null || docker compose up -d nginx
+              echo "nginx config validated + reloaded"
+            else
+              echo "ERROR: shipped nginx config failed validation — keeping the running config" >&2
+              exit 1
             fi
 
             docker image prune -f
