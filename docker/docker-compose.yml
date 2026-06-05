@@ -103,8 +103,6 @@ services:
     environment:
       - NODE_ENV=production
       - APP_NAME=commerce-service
-      # If commerce uses its OWN Postgres schema, override it here:
-      # - PRIMARY_DB_SCHEMA=commerce
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

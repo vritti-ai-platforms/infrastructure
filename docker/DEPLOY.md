@@ -122,6 +122,9 @@ cp cloud/.env.example /opt/vritti/cloud/.env   # from infrastructure/docker/clou
 cp core/.env.example  /opt/vritti/core/.env
 chmod 600 /opt/vritti/cloud/.env /opt/vritti/core/.env
 # REDIS_URL passwords in both files must match REDIS_PASSWORD above
+# NOTE: only cloud + core get a deploy .env. commerce-service shares core/.env
+#       (see service/.env.example for the subset it validates); commerce-mf is a
+#       static remote with no env (see mf/.env.example). Nothing to copy for those.
 ```
 
 ### 6. First boot
@@ -163,12 +166,13 @@ using the built-in `GITHUB_TOKEN` (no PAT needed for push).
   `docker exec nginx nginx -t && docker exec nginx nginx -s reload`. No image rebuild —
   the config is a mounted volume.
 
-## ⚠️ App-code follow-ups (needed before auth works in prod)
-- `cloud-server/src/main.ts` hardcodes `CORS_ORIGINS` (localhost / `local.vrittiai.com`)
-  and `host`. Make these env-driven and include `https://cloud.vrittiai.com` +
-  `https://admin.vrittiai.com`, or auth/CORS will fail.
-- `core-server` CORS must allow `https://*.dev.vrittiai.com`.
-- After removing the `link:` overrides, **regenerate + commit `pnpm-lock.yaml`** in both
-  repos, or the Docker `pnpm install --frozen-lockfile` will fail.
-- Confirm `commerce-service`'s Postgres schema; if it isn't `vritti_core`, set
-  `PRIMARY_DB_SCHEMA` for it in `docker-compose.yml`.
+## ⚠️ Before you ship — checklist
+- **Set `APP_HOST` + `CORS_ORIGINS`** in each VM `.env` — host/CORS are now env-driven and fall
+  back to local-dev values when unset. cloud → `APP_HOST=cloud.vrittiai.com`,
+  `CORS_ORIGINS=https://cloud.vrittiai.com,https://admin.vrittiai.com`; core → `APP_HOST=dev.vrittiai.com`.
+- **Distinct secrets per server** — `JWT_SECRET`, `HMAC_KEY`, `COOKIE_SECRET` must each be a
+  *different* ≥32-char random value in cloud vs core (boot now rejects shorter/missing ones).
+- After removing the `link:` overrides, **regenerate + commit `pnpm-lock.yaml`** in both repos,
+  or the Docker `pnpm install --frozen-lockfile` will fail.
+
+> commerce-service uses the shared `vritti_core` schema (confirmed) — no override needed.
