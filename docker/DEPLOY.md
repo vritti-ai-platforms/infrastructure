@@ -34,9 +34,11 @@ Nothing reaches the VM on merge — both backend images and web bundles land in 
 
 ### 1. Directory layout (`/opt/vritti`)
 ```bash
-sudo mkdir -p /opt/vritti/{cloud,core,www/cloud,www/core,ssl,nginx/conf.d,logs/{nginx,cloud,core},letsencrypt}
+sudo mkdir -p /opt/vritti/{cloud,core,www/cloud,www/core,ssl,nginx/conf.d,logs/{nginx,cloud,core},letsencrypt,geoip}
 sudo chown -R "$USER":"$USER" /opt/vritti
 # copy docker-compose.yml to /opt/vritti/docker-compose.yml
+# GeoIP DB (cloud-server) is committed in infra docker/geoip/ and scp'd here by the Deploy
+#   workflow on cloud backend deploys — no manual upload. Lands at /opt/vritti/geoip/GeoLite2-City.mmdb.
 # copy nginx config (mounted into the stock nginx:alpine container):
 #   infrastructure/nginx/nginx.conf          -> /opt/vritti/nginx/nginx.conf
 #   infrastructure/nginx/conf.d/default.conf -> /opt/vritti/nginx/conf.d/default.conf

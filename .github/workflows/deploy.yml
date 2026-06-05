@@ -37,6 +37,25 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
+      # GeoIP DB lives in this repo (docker/geoip/) — copy it to the VM so cloud-server can mount it.
+      # Only needed for cloud backend deploys; core doesn't use GeoIP.
+      - name: Checkout (for the GeoIP DB)
+        if: inputs.product == 'vritti-cloud' && inputs.target != 'frontend'
+        uses: actions/checkout@v4
+        with:
+          lfs: true   # pull the real GeoLite2 DB, not the LFS pointer
+
+      - name: Copy GeoIP DB to the VM
+        if: inputs.product == 'vritti-cloud' && inputs.target != 'frontend'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.SERVER_VM_HOST }}
+          username: ${{ vars.SERVER_VM_USER }}
+          key: ${{ secrets.SERVER_VM_SSH_KEY }}
+          source: docker/geoip/GeoLite2-City.mmdb
+          target: /opt/vritti/geoip/
+          strip_components: 2
+
       - name: SSH → pull & ship on the VM
         uses: appleboy/ssh-action@v1.0.3
         env:
@@ -47,8 +66,8 @@ jobs:
           GHCR_USER: ${{ github.actor }}
           GHCR_OWNER: ${{ github.repository_owner }}
         with:
-          host: ${{ secrets.SERVER_VM_HOST }}
-          username: ${{ secrets.SERVER_VM_USER }}
+          host: ${{ vars.SERVER_VM_HOST }}
+          username: ${{ vars.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
           envs: PRODUCT,TARGET,IMAGE_TAG,GHCR_TOKEN,GHCR_USER,GHCR_OWNER
           script: |
@@ -95,4 +114,4 @@ jobs:
         run: |
           echo "## Deploy ${{ inputs.product }} — ${{ inputs.target }}" >> "$GITHUB_STEP_SUMMARY"
           echo "**Tag:** \`${{ inputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Host:** \`${{ secrets.SERVER_VM_HOST }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Host:** \`${{ vars.SERVER_VM_HOST }}\`" >> "$GITHUB_STEP_SUMMARY"

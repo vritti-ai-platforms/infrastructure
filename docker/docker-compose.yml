@@ -57,6 +57,8 @@ services:
     expose: ["3000"]
     volumes:
       - ./logs/cloud:/app/logs
+      # GeoIP DB — shipped to /opt/vritti/geoip by the Deploy workflow (committed in infra docker/geoip/)
+      - ./geoip/GeoLite2-City.mmdb:/app/data/GeoLite2-City.mmdb:ro
     networks: [vritti]
     mem_limit: 384m
     healthcheck:
