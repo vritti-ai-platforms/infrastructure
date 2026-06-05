@@ -98,7 +98,8 @@ jobs:
                 SERVICES="cloud-server"; WEB_REPO="ghcr.io/${OWNER}/cloud-web"; WEB_DIR="cloud" ;;
               vritti-core)
                 export CORE_IMAGE_TAG="$IMAGE_TAG"
-                SERVICES="core-server commerce-service"; WEB_REPO="ghcr.io/${OWNER}/core-web"; WEB_DIR="core" ;;
+                SERVICES="core-server commerce-service"; WEB_REPO="ghcr.io/${OWNER}/core-web"; WEB_DIR="core"
+                MF_REMOTES="commerce-mf" ;;
             esac
 
             # ---- Backend: write .env from secrets, then pull + restart ----
@@ -137,6 +138,19 @@ jobs:
               tar -xzf "$TMP/web.tar.gz" -C "/opt/vritti/www/${WEB_DIR}"
               chmod -R a+rX "/opt/vritti/www/${WEB_DIR}"   # umask 077 above makes files 600; nginx (other uid) must read them
               rm -rf "$TMP"
+
+              # Module-federation remotes → served from mf.<domain>/<name>/ (nginx root: www/mf)
+              for remote in ${MF_REMOTES:-}; do
+                echo "[mf-remote] ghcr.io/${OWNER}/${remote}:${IMAGE_TAG} -> /opt/vritti/www/mf/${remote}"
+                RTMP=$(mktemp -d)
+                oras pull "ghcr.io/${OWNER}/${remote}:${IMAGE_TAG}" -o "$RTMP"
+                mkdir -p "/opt/vritti/www/mf/${remote}"
+                find "/opt/vritti/www/mf/${remote}" -mindepth 1 -delete
+                tar -xzf "$RTMP/web.tar.gz" -C "/opt/vritti/www/mf/${remote}"
+                chmod -R a+rX "/opt/vritti/www/mf/${remote}"
+                rm -rf "$RTMP"
+              done
+
               docker exec nginx nginx -s reload 2>/dev/null || true
             fi
 
