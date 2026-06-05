@@ -122,11 +122,8 @@ jobs:
           host: ${{ vars.SERVER_VM_HOST }}
           username: ${{ vars.SERVER_VM_USER }}
           key: ${{ secrets.SERVER_VM_SSH_KEY }}
-          source: |
-            nginx/nginx.conf
-            nginx/conf.d/default.conf
-          target: /opt/vritti/nginx/
-          strip_components: 1   # nginx/... -> /opt/vritti/nginx/...
+          source: nginx          # whole dir → /opt/vritti/nginx/ (avoids multi-source parsing)
+          target: /opt/vritti/
 
       - name: Summary
         run: |
