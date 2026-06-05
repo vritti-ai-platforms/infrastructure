@@ -135,6 +135,7 @@ jobs:
               mkdir -p "/opt/vritti/www/${WEB_DIR}"
               find "/opt/vritti/www/${WEB_DIR}" -mindepth 1 -delete
               tar -xzf "$TMP/web.tar.gz" -C "/opt/vritti/www/${WEB_DIR}"
+              chmod -R a+rX "/opt/vritti/www/${WEB_DIR}"   # umask 077 above makes files 600; nginx (other uid) must read them
               rm -rf "$TMP"
               docker exec nginx nginx -s reload 2>/dev/null || true
             fi

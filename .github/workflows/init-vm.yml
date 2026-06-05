@@ -74,6 +74,8 @@ jobs:
             # ---- /opt/vritti tree (owned by the deploy user) ----
             sudo mkdir -p /opt/vritti/{cloud,core,service,www/cloud,www/core,ssl,nginx/conf.d,logs/{nginx,cloud,core},letsencrypt,geoip}
             sudo chown -R "$USER":"$USER" /opt/vritti
+            # app containers run as uid 1001 and write their logs into these bind mounts
+            sudo chmod -R 777 /opt/vritti/logs
 
             # ---- TLS: combined cert via Cloudflare DNS-01 (only with a token + no cert yet) ----
             if [ -n "${CF_TOKEN:-}" ] && [ ! -s /opt/vritti/ssl/vrittiai.com.crt ]; then
