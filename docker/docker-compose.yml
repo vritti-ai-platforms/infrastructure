@@ -114,6 +114,52 @@ services:
     mem_limit: 256m
     logging: *logging
 
+  # ---- One-shot migration runners (profile: migrate) ----
+  # Run to completion in the deploy release phase BEFORE the app services roll:
+  #   docker compose run --rm <name>
+  # Each applies Drizzle migrations as the owner (direct URL) then grants the runtime role.
+  cloud-migrate:
+    image: ghcr.io/vritti-ai-platforms/cloud-server:${CLOUD_IMAGE_TAG:-latest-main}
+    container_name: cloud-migrate
+    env_file: [./cloud/.env]
+    environment:
+      - NODE_ENV=production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["node", "dist/db/migrate.js"]
+    restart: "no"
+    profiles: ["migrate"]
+    networks: [vritti]
+    logging: *logging
+
+  core-migrate:
+    image: ghcr.io/vritti-ai-platforms/core-server:${CORE_IMAGE_TAG:-latest-main}
+    container_name: core-migrate
+    env_file: [./core/.env]
+    environment:
+      - NODE_ENV=production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["node", "dist/db/migrate.js"]
+    restart: "no"
+    profiles: ["migrate"]
+    networks: [vritti]
+    logging: *logging
+
+  commerce-migrate:
+    image: ghcr.io/vritti-ai-platforms/commerce-service:${CORE_IMAGE_TAG:-latest-main}
+    container_name: commerce-migrate
+    env_file: [./service/.env]
+    environment:
+      - NODE_ENV=production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["node", "dist/db/migrate.js"]
+    restart: "no"
+    profiles: ["migrate"]
+    networks: [vritti]
+    logging: *logging
+
   nats:
     image: nats:2.10-alpine
     container_name: nats

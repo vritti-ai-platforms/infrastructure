@@ -131,6 +131,15 @@ jobs:
 
               echo "[backend] $SERVICES @ $IMAGE_TAG"
               docker compose pull $SERVICES
+
+              # ---- Release phase: migrate to completion BEFORE rolling apps (fail-closed via set -e) ----
+              # core-server owns the shared vritti_core schema + ltree, so it must migrate before commerce.
+              case "$PRODUCT" in
+                vritti-cloud) docker compose run --rm cloud-migrate ;;
+                vritti-core)  docker compose run --rm core-migrate
+                              docker compose run --rm commerce-migrate ;;
+              esac
+
               docker compose up -d --no-deps $SERVICES
               # ensure shared infra is up (idempotent — no-op once running). nginx has no
               # depends_on, so it starts even if the other product isn't deployed yet.
