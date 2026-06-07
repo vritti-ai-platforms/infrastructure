@@ -133,6 +133,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Remove untagged image versions left behind when a tag (e.g. latest-main or the same
+      # version-branch) is re-pushed to a new digest. Scoped to this service's package only.
+      - name: Delete untagged GHCR images
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: dataaxiom/ghcr-cleanup-action@v1.2.2
+        with:
+          owner: ${{ github.repository_owner }}
+          packages: ${{ inputs.service_name }}
+          delete-untagged: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Generate build summary
         run: |
           echo "## [DOCKER] Docker Build Summary" >> $GITHUB_STEP_SUMMARY

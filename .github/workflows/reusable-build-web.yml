@@ -99,6 +99,16 @@ jobs:
           oras tag "${REPO}:${BRANCH}-${SHA}" "latest-${BRANCH}"
           echo "Pushed ${REPO}:${BRANCH}-${SHA}  (+ latest-${BRANCH})"
 
+      # Remove untagged versions orphaned when latest-<branch> (or a re-pushed sha tag) moves to a new digest.
+      - name: Delete untagged GHCR artifacts
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: dataaxiom/ghcr-cleanup-action@v1.2.2
+        with:
+          owner: ${{ github.repository_owner }}
+          packages: ${{ inputs.app_name }}
+          delete-untagged: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Summary
         run: |
           echo "## Web bundle published" >> "$GITHUB_STEP_SUMMARY"
