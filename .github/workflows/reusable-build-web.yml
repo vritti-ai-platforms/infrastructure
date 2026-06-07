@@ -19,6 +19,11 @@ on:
         description: 'Build output dir (e.g. apps/cloud-web/dist)'
         required: true
         type: string
+      package_json_path:
+        description: 'Path to package.json for version (default: ./package.json)'
+        required: false
+        type: string
+        default: './package.json'
       node_version:
         required: false
         type: string
@@ -80,8 +85,11 @@ jobs:
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           REPO="${{ env.REGISTRY }}/${OWNER}/${{ inputs.app_name }}"
+          # Version-based tag (symmetric with backend images): <version>-<branch>
+          VERSION=$(jq -r '.version' "${{ inputs.package_json_path }}")
+          VERSION_TAG="${VERSION}-${{ github.ref_name }}"
           echo "repo=${REPO}" >> "$GITHUB_OUTPUT"
-          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version_tag=${VERSION_TAG}" >> "$GITHUB_OUTPUT"
           echo "image_ref=${REPO}:latest-${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
 
       - uses: oras-project/setup-oras@v1
@@ -90,14 +98,14 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | oras login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
           REPO="${{ steps.meta.outputs.repo }}"
-          SHA="${{ steps.meta.outputs.sha }}"
+          VERSION_TAG="${{ steps.meta.outputs.version_tag }}"
           BRANCH="${{ github.ref_name }}"
-          # push immutable sha tag, then add the rolling latest-<branch> tag
-          oras push "${REPO}:${BRANCH}-${SHA}" \
+          # push the <version>-<branch> tag, then add the rolling latest-<branch> tag
+          oras push "${REPO}:${VERSION_TAG}" \
             --artifact-type application/vnd.vritti.web.bundle.v1+gzip \
             web.tar.gz:application/gzip
-          oras tag "${REPO}:${BRANCH}-${SHA}" "latest-${BRANCH}"
-          echo "Pushed ${REPO}:${BRANCH}-${SHA}  (+ latest-${BRANCH})"
+          oras tag "${REPO}:${VERSION_TAG}" "latest-${BRANCH}"
+          echo "Pushed ${REPO}:${VERSION_TAG}  (+ latest-${BRANCH})"
 
       # Remove untagged versions orphaned when latest-<branch> (or a re-pushed sha tag) moves to a new digest.
       - name: Delete untagged GHCR artifacts
@@ -113,4 +121,4 @@ jobs:
         run: |
           echo "## Web bundle published" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Artifact:** \`${{ steps.meta.outputs.image_ref }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Immutable:** \`${{ steps.meta.outputs.repo }}:${{ github.ref_name }}-${{ steps.meta.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Version tag:** \`${{ steps.meta.outputs.repo }}:${{ steps.meta.outputs.version_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
