@@ -69,6 +69,25 @@ jobs:
             cd /opt/infisical
             echo "[OK] Working directory: $(pwd)"
 
+            # Ensure Docker + swap (idempotent base provisioning)
+            echo "[STEP 1b] Ensuring Docker and swap..."
+            if [ "$(swapon --show=NAME --noheadings | wc -l)" -eq 0 ]; then
+              sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
+              sudo chmod 600 /swapfile
+              sudo mkswap /swapfile
+              sudo swapon /swapfile
+              grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+            fi
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com | sudo sh
+              sudo usermod -aG docker "$(whoami)" || true
+            fi
+            sudo systemctl enable --now docker 2>/dev/null || true
+            if ! docker info >/dev/null 2>&1; then
+              sudo chmod 666 /var/run/docker.sock
+            fi
+            echo "[OK] Docker: $(docker --version 2>/dev/null || echo missing)"
+
             # Login to GHCR
             echo "[STEP 2/9] Logging into GHCR..."
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
