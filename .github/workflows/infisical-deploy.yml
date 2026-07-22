@@ -16,11 +16,6 @@ on:
         type: string
         default: 'latest-main'
     secrets:
-      # Infisical VM (separate from Vritti API Nexus VM)
-      INFISICAL_VM_HOST:
-        required: true
-      INFISICAL_VM_USER:
-        required: true
       INFISICAL_VM_SSH_KEY:
         required: true
       GHCR_TOKEN:
@@ -30,24 +25,12 @@ on:
         required: true
       INFISICAL_AUTH_SECRET:
         required: true
-      INFISICAL_SITE_URL:
-        required: true
       # Optional - GitHub App connection
-      INFISICAL_GITHUB_APP_CLIENT_ID:
-        required: false
       INFISICAL_GITHUB_APP_CLIENT_SECRET:
         required: false
       INFISICAL_GITHUB_APP_PRIVATE_KEY:
         required: false
-      INFISICAL_GITHUB_APP_SLUG:
-        required: false
-      INFISICAL_GITHUB_APP_ID:
-        required: false
       # Backup - Cloudflare R2 credentials (prefixed INFISICAL_ to avoid collision with other VM backup secrets)
-      INFISICAL_BACKREST_R2_ENDPOINT:
-        required: false
-      INFISICAL_BACKREST_R2_BUCKET:
-        required: false
       INFISICAL_BACKREST_R2_ACCESS_KEY:
         required: false
       INFISICAL_BACKREST_R2_SECRET_KEY:
@@ -69,8 +52,8 @@ jobs:
       - name: Deploy Infisical to Server VM
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.INFISICAL_VM_HOST }}
-          username: ${{ secrets.INFISICAL_VM_USER }}
+          host: ${{ vars.INFISICAL_VM_HOST }}
+          username: ${{ vars.INFISICAL_VM_USER }}
           key: ${{ secrets.INFISICAL_VM_SSH_KEY }}
           script: |
             set -e
@@ -152,15 +135,15 @@ jobs:
             echo "INFISICAL_VERSION=${{ inputs.image_tag }}" >> .env
             echo "INFISICAL_ENCRYPTION_KEY=${{ secrets.INFISICAL_ENCRYPTION_KEY }}" >> .env
             echo "INFISICAL_AUTH_SECRET=${{ secrets.INFISICAL_AUTH_SECRET }}" >> .env
-            echo "INFISICAL_SITE_URL=${{ secrets.INFISICAL_SITE_URL }}" >> .env
-            echo "INFISICAL_GITHUB_APP_CLIENT_ID=${{ secrets.INFISICAL_GITHUB_APP_CLIENT_ID }}" >> .env
+            echo "INFISICAL_SITE_URL=${{ vars.INFISICAL_SITE_URL }}" >> .env
+            echo "INFISICAL_GITHUB_APP_CLIENT_ID=${{ vars.INFISICAL_GITHUB_APP_CLIENT_ID }}" >> .env
             echo "INFISICAL_GITHUB_APP_CLIENT_SECRET=${{ secrets.INFISICAL_GITHUB_APP_CLIENT_SECRET }}" >> .env
             echo "INFISICAL_GITHUB_APP_PRIVATE_KEY=${{ secrets.INFISICAL_GITHUB_APP_PRIVATE_KEY }}" >> .env
-            echo "INFISICAL_GITHUB_APP_SLUG=${{ secrets.INFISICAL_GITHUB_APP_SLUG }}" >> .env
-            echo "INFISICAL_GITHUB_APP_ID=${{ secrets.INFISICAL_GITHUB_APP_ID }}" >> .env
+            echo "INFISICAL_GITHUB_APP_SLUG=${{ vars.INFISICAL_GITHUB_APP_SLUG }}" >> .env
+            echo "INFISICAL_GITHUB_APP_ID=${{ vars.INFISICAL_GITHUB_APP_ID }}" >> .env
             # Backup - pgBackRest and Cloudflare R2 credentials (used by docker-compose.override.yml)
-            echo "BACKREST_R2_ENDPOINT=${{ secrets.INFISICAL_BACKREST_R2_ENDPOINT }}" >> .env
-            echo "BACKREST_R2_BUCKET=${{ secrets.INFISICAL_BACKREST_R2_BUCKET }}" >> .env
+            echo "BACKREST_R2_ENDPOINT=${{ vars.INFISICAL_BACKREST_R2_ENDPOINT }}" >> .env
+            echo "BACKREST_R2_BUCKET=${{ vars.INFISICAL_BACKREST_R2_BUCKET }}" >> .env
             echo "BACKREST_R2_ACCESS_KEY=${{ secrets.INFISICAL_BACKREST_R2_ACCESS_KEY }}" >> .env
             echo "BACKREST_R2_SECRET_KEY=${{ secrets.INFISICAL_BACKREST_R2_SECRET_KEY }}" >> .env
             echo "BACKREST_REPO1_CIPHER_PASS=${{ secrets.INFISICAL_BACKREST_REPO1_CIPHER_PASS }}" >> .env
@@ -171,8 +154,8 @@ jobs:
             echo "[STEP 6b] Writing backup/.env.backup..."
             mkdir -p backup
             {
-              echo "BACKREST_R2_ENDPOINT=${{ secrets.INFISICAL_BACKREST_R2_ENDPOINT }}"
-              echo "BACKREST_R2_BUCKET=${{ secrets.INFISICAL_BACKREST_R2_BUCKET }}"
+              echo "BACKREST_R2_ENDPOINT=${{ vars.INFISICAL_BACKREST_R2_ENDPOINT }}"
+              echo "BACKREST_R2_BUCKET=${{ vars.INFISICAL_BACKREST_R2_BUCKET }}"
               echo "BACKREST_R2_ACCESS_KEY=${{ secrets.INFISICAL_BACKREST_R2_ACCESS_KEY }}"
               echo "BACKREST_R2_SECRET_KEY=${{ secrets.INFISICAL_BACKREST_R2_SECRET_KEY }}"
               echo "REDIS_BACKUP_LOCAL_DIR=/opt/vritti/backups/infisical/redis"
@@ -295,7 +278,7 @@ jobs:
 
           while [ $attempt -le $max_attempts ]; do
             echo "Attempt $attempt of $max_attempts..."
-            if curl -sf "https://${{ secrets.INFISICAL_SITE_URL }}/api/status" > /dev/null 2>&1; then
+            if curl -sf "https://${{ vars.INFISICAL_SITE_URL }}/api/status" > /dev/null 2>&1; then
               echo "[OK] Health check passed!"
               exit 0
             fi
@@ -311,8 +294,8 @@ jobs:
           echo "## 🔐 Infisical Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** \`ghcr.io/${{ github.repository_owner }}/infisical-secret-manager:${{ inputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Server:** \`${{ secrets.INFISICAL_VM_HOST }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Site URL:** \`${{ secrets.INFISICAL_SITE_URL }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Server:** \`${{ vars.INFISICAL_VM_HOST }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Site URL:** \`${{ vars.INFISICAL_SITE_URL }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Services Deployed" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Infisical (port 8080)" >> $GITHUB_STEP_SUMMARY
