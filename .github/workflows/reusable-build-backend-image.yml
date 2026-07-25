@@ -89,6 +89,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Large multi-stage images (e.g. infisical-secret-manager ~3.4GB) exhaust the
+      # ~14GB ubuntu-latest disk during build + cache export. Reclaim ~20-25GB of
+      # preinstalled tooling we don't use before building.
+      - name: Free up disk space
+        run: |
+          echo "Disk before cleanup:"; df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
+          sudo docker image prune --all --force || true
+          echo "Disk after cleanup:"; df -h /
+
       - name: Set variables
         id: vars
         run: |
