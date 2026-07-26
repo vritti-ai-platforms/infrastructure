@@ -115,6 +115,9 @@ services:
       - POSTGRES_USER=infisical
       - POSTGRES_PASSWORD=infisical_internal
       - POSTGRES_DB=infisical_db
+      # PG18 images refuse a volume mounted directly at /var/lib/postgresql/data — PGDATA must be
+      # a subdir under the mount (and pgbackrest.conf pg1-path must match).
+      - PGDATA=/var/lib/postgresql/data/pgdata
       # pgBackRest (repos + secrets injected from .env)
       - PGBACKREST_REPO1_CIPHER_TYPE=aes-256-cbc
       - PGBACKREST_REPO1_CIPHER_PASS=${BACKREST_REPO1_CIPHER_PASS}

@@ -119,8 +119,8 @@ jobs:
             # pgBackRest config
             download_file "${RAW}/infisical/pgbackrest.conf" "pgbackrest.conf"
 
-            # Backup + one-time migration scripts
-            for SCRIPT in backup-full.sh backup-incremental.sh backup-redis.sh restore-postgres.sh restore-redis.sh verify-backup.sh migrate-pg16-to-18.sh; do
+            # Backup scripts
+            for SCRIPT in backup-full.sh backup-incremental.sh backup-redis.sh restore-postgres.sh restore-redis.sh verify-backup.sh; do
               download_file "${RAW}/infisical/scripts/${SCRIPT}" "scripts/${SCRIPT}"
               chmod +x "scripts/${SCRIPT}"
             done
