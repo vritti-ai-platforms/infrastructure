@@ -1,0 +1,13 @@
+# OPTIONAL static fallback. The default inventory is inventory/tofu-inventory.py, which reads
+# the VM IPs straight from `tofu output`. Use this file only for a disconnected/manual run:
+# copy to hosts.yml and set `inventory = inventory/hosts.yml` in ansible.cfg (or pass -i).
+all:
+  children:
+    vm1:
+      hosts:
+        vritti-vm1:
+          ansible_host: CHANGE_ME_VM1_RESERVED_IP
+    vm2:
+      hosts:
+        vritti-vm2:
+          ansible_host: CHANGE_ME_VM2_RESERVED_IP

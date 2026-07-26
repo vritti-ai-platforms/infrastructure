@@ -1,0 +1,31 @@
+# Infisical backup cron schedule
+# All times are UTC.
+#
+# Install on the server with:
+#   crontab /opt/infisical/cron/backup-crontab
+#
+# View installed crontab:
+#   crontab -l
+#
+# View logs:
+#   tail -f /var/log/infisical-backup.log
+
+# --- WEEKLY FULL BACKUP ---
+# Every Sunday at 02:00 UTC
+0 2 * * 0  /opt/infisical/scripts/backup-full.sh >> /var/log/infisical-backup.log 2>&1
+
+# --- DAILY INCREMENTAL BACKUP ---
+# Monday–Saturday at 02:00 UTC (Sunday runs the full backup instead)
+0 2 * * 1-6  /opt/infisical/scripts/backup-incremental.sh >> /var/log/infisical-backup.log 2>&1
+
+# --- DAILY REDIS BACKUP ---
+# Every day at 03:00 UTC (1 hour after PostgreSQL backup to avoid I/O contention)
+0 3 * * *  /opt/infisical/scripts/backup-redis.sh >> /var/log/infisical-backup.log 2>&1
+
+# --- DAILY BACKUP VERIFICATION ---
+# Every day at 04:00 UTC (after backups complete)
+0 4 * * *  /opt/infisical/scripts/verify-backup.sh >> /var/log/infisical-backup.log 2>&1
+
+# --- WEEKLY LOG ROTATION ---
+# Every Sunday at 05:00 UTC (after full backup completes)
+0 5 * * 0  truncate -s 0 /var/log/infisical-backup.log

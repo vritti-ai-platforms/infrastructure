@@ -1,0 +1,41 @@
+---
+# Deploys cloudflared for this VM's Zero-Trust tunnel. The per-VM token comes straight from
+# the tofu network layer's output (read on the control node), so nothing is hand-copied.
+
+- name: Read the tunnel token from tofu (control node)
+  ansible.builtin.command:
+    cmd: "{{ tofu_bin }} output -raw {{ tunnel_token_output }}"
+    chdir: "{{ tofu_network_dir }}"
+  delegate_to: localhost
+  become: false
+  register: tunnel_token
+  changed_when: false
+  no_log: true
+
+- name: Fail if the tunnel token is empty
+  ansible.builtin.assert:
+    that: tunnel_token.stdout | trim | length > 0
+    fail_msg: >-
+      Empty tunnel token from `{{ tofu_bin }} output -raw {{ tunnel_token_output }}`.
+      Run Ansible the same way as tofu (e.g. `infisical run -- ansible-playbook ...`).
+
+- name: Ensure the app networks exist (cloudflared attaches to reach services by name)
+  community.docker.docker_network:
+    name: "{{ item.name }}"
+    driver: bridge
+    state: present
+  loop: "{{ cloudflared_networks }}"
+
+- name: Run cloudflared tunnel
+  community.docker.docker_container:
+    name: cloudflared
+    image: "{{ cloudflared_image }}"
+    command: "tunnel --no-autoupdate run"
+    env:
+      TUNNEL_TOKEN: "{{ tunnel_token.stdout }}"
+    networks: "{{ cloudflared_networks }}"
+    networks_cli_compatible: true
+    restart_policy: unless-stopped
+    state: started
+    memory: "128m"
+  no_log: true

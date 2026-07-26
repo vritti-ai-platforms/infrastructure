@@ -1,0 +1,20 @@
+# OpenTofu / Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Variable files may hold sensitive values — keep them out of git
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI config
+.terraformrc
+terraform.rc
+
+# NOTE: .terraform.lock.hcl is intentionally NOT ignored — commit it to pin provider hashes.

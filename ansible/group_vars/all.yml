@@ -1,0 +1,32 @@
+# Shared across both VMs.
+ansible_python_interpreter: /usr/bin/python3
+
+# SSH connection (host IPs come from the tofu dynamic inventory, not here).
+ansible_user: ubuntu
+ansible_ssh_private_key_file: "~/.ssh/vritti_vm"
+
+# Cloud control plane the agent enrolls with.
+cloud_url: "https://cloud.vrittiai.com"
+
+# The open-source deployment agent (image built by vritti-application-agent CI).
+agent_image: "ghcr.io/vritti-ai-platforms/application-agent"
+agent_image_tag: "latest-main"
+agent_data_dir: "/var/lib/vritti-agent"
+agent_stack_root: "/opt/vritti-core"
+
+# GHCR pull auth for private images (agent, cloud/core servers). From Infisical (via infisical run).
+ghcr_username: "{{ lookup('env', 'GHCR_USERNAME') | default('vritti-ci', true) }}"
+ghcr_token: "{{ lookup('env', 'GHCR_TOKEN') }}"
+
+# Host baseline.
+swap_size_gb: 4
+extra_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - ufw
+  - unattended-upgrades
+
+# Docker.
+docker_apt_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"

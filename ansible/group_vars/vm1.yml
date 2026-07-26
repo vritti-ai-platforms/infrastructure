@@ -1,0 +1,38 @@
+# VM1 = cloud control plane + the DEV vritti-core deployment (agent-managed).
+vm_role: cloud
+
+# Dev core lives under *.dev; the shared cloud nginx is the edge for it.
+base_domain: "dev.vrittiai.com"
+cloud_domain: "cloud.vrittiai.com"
+admin_domain: "admin.vrittiai.com"
+dblab_domain: "dblab.vrittiai.com"
+
+# Agent runs the DEV deployment on this host (secrets from Infisical via infisical run).
+deployment_id: "{{ lookup('env', 'VM1_DEPLOYMENT_ID') }}"
+enroll_token: "{{ lookup('env', 'VM1_ENROLL_TOKEN') }}"
+
+# Feature toggles for the vm1 play.
+enable_zfs: true
+enable_dblab: true
+enable_cloud_stack: true
+enable_tls: true
+
+# ZFS pool backing DbLab thin clones. Point zfs_device at the *data* disk (not the OS disk).
+zfs_pool: "dblab"
+zfs_device: "/dev/sdb"
+zfs_dataset: "dblab/clones"
+
+# Zero-Trust tunnel — cloudflared attaches to both app networks so ingress can reach the cloud
+# stack (nginx:8080 admin, dblab:2345) and the dev core (gitea:3000) by service name.
+tunnel_token_output: "vm1_tunnel_token"
+cloudflared_networks:
+  - name: "vritti-network"
+  - name: "vritti-core-net"
+
+# TLS (wildcard via Cloudflare DNS-01).
+tls_domains:
+  - "vrittiai.com"
+  - "*.vrittiai.com"
+  - "*.dev.vrittiai.com"
+tls_email: "shashank@vrittiai.com"
+cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_API_TOKEN') }}"

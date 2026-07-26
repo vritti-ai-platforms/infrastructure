@@ -1,0 +1,56 @@
+---
+# Wildcard TLS via certbot + Cloudflare DNS-01. Issues one combined cert for the domains in
+# tls_domains and drops it where the cloud nginx expects it (/opt/vritti/ssl).
+
+- name: Install certbot + Cloudflare DNS plugin
+  ansible.builtin.apt:
+    name:
+      - certbot
+      - python3-certbot-dns-cloudflare
+    state: present
+    update_cache: true
+
+- name: Write Cloudflare credentials
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/cloudflare.ini
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      dns_cloudflare_api_token = {{ cloudflare_api_token }}
+  no_log: true
+
+- name: Ensure ssl output dir exists
+  ansible.builtin.file:
+    path: /opt/vritti/ssl
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: "0755"
+
+- name: Request wildcard certificate (DNS-01)
+  ansible.builtin.command:
+    cmd: >-
+      certbot certonly --non-interactive --agree-tos
+      --dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini
+      --dns-cloudflare-propagation-seconds 30
+      -m {{ tls_email }}
+      {% for d in tls_domains %}-d '{{ d }}' {% endfor %}
+      --cert-name vrittiai
+    creates: /etc/letsencrypt/live/vrittiai/fullchain.pem
+
+- name: Deploy hook — copy renewed certs into the nginx ssl dir
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/vritti-nginx.sh
+    mode: "0755"
+    content: |
+      #!/bin/bash
+      set -e
+      cp /etc/letsencrypt/live/vrittiai/fullchain.pem /opt/vritti/ssl/vrittiai.com.crt
+      cp /etc/letsencrypt/live/vrittiai/privkey.pem   /opt/vritti/ssl/vrittiai.com.key
+      docker exec nginx nginx -s reload 2>/dev/null || true
+
+- name: Run deploy hook once now (initial issuance)
+  ansible.builtin.command:
+    cmd: /etc/letsencrypt/renewal-hooks/deploy/vritti-nginx.sh
+    creates: /opt/vritti/ssl/vrittiai.com.crt

@@ -1,0 +1,139 @@
+# Managed by Ansible (roles/cloud_stack). The CLOUD control-plane stack on vm1.
+# The dev vritti-core stack on this same host is NOT here — the agent owns that.
+name: vritti-cloud
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  nginx:
+    image: {{ cloud_nginx_image }}
+    container_name: nginx
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./www:/usr/share/nginx/html:ro
+      - ./logs/nginx:/var/log/nginx
+    networks: [cloud, core]        # attaches to the agent's core net to route *.dev
+    mem_limit: 96m
+    logging: *logging
+
+  cloud-server:
+    image: {{ cloud_server_image }}:{{ cloud_server_tag }}
+    container_name: cloud-server
+    restart: unless-stopped
+    env_file: [./cloud/.env]
+    environment: [NODE_ENV=production, PORT=3000]
+    expose: ["3000"]
+    volumes:
+      - ./logs/cloud:/app/logs
+      # GeoLite2 DB — populated + kept fresh by the geoip role (geoipupdate), which runs first.
+      - ./geoip/GeoLite2-City.mmdb:/app/data/GeoLite2-City.mmdb:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+      nats: { condition: service_started }
+    networks: [cloud]
+    mem_limit: 384m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging: *logging
+
+  cloud-migrate:
+    image: {{ cloud_server_image }}:{{ cloud_server_tag }}
+    container_name: cloud-migrate
+    env_file: [./cloud/.env]
+    environment: [NODE_ENV=production]
+    command: ["node", "dist/db/migrate.js"]
+    restart: "no"
+    profiles: ["migrate"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [cloud]
+    logging: *logging
+
+  postgres:
+    image: {{ cloud_postgres_image }}
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_SUPER_PASSWORD:?set in .env}
+      - POSTGRES_DB={{ cloud_db_name }}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+      - ./backup:/var/lib/pgbackrest
+      - ./pgbackrest:/etc/pgbackrest
+    expose: ["5432"]
+    networks: [cloud]
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d {{ cloud_db_name }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *logging
+
+  redis:
+    image: {{ cloud_redis_image }}
+    container_name: redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --requirepass
+      - ${REDIS_PASSWORD:?set in .env}
+    expose: ["6379"]
+    networks: [cloud]
+    mem_limit: 160m
+    logging: *logging
+
+  nats:
+    image: {{ cloud_nats_image }}
+    container_name: nats
+    restart: unless-stopped
+    expose: ["4222"]
+    networks: [cloud]
+    mem_limit: 96m
+    logging: *logging
+
+  # DbLab (thin clones) — dev-only, behind dblab. + Zero-Trust. Needs ZFS + the docker socket.
+  # Started on demand:  docker compose --profile dblab up -d dblab
+  dblab:
+    image: {{ cloud_dblab_image }}
+    container_name: dblab
+    restart: unless-stopped
+    profiles: ["dblab"]
+    privileged: true
+    environment: [DLE_COMPUTE_ENV=docker]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/dblab:/var/lib/dblab:rshared
+      - ./dblab/server.yml:/home/dblab/configs/server.yml:ro
+    expose: ["2345"]
+    networks: [cloud]
+    mem_limit: 512m
+    logging: *logging
+
+networks:
+  cloud:
+    name: vritti-network
+    driver: bridge
+  core:
+    name: {{ core_network_name }}
+    external: true

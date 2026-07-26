@@ -1,0 +1,27 @@
+---
+# Image references for the cloud control-plane stack.
+cloud_server_image: "ghcr.io/vritti-ai-platforms/cloud-server"
+cloud_server_tag: "latest-main"
+cloud_postgres_image: "ghcr.io/vritti-ai-platforms/postgres-pgbackrest:18.4"
+cloud_redis_image: "redis:8-alpine"
+cloud_nats_image: "nats:2.11-alpine"
+cloud_nginx_image: "nginx:1.27-alpine"
+cloud_dblab_image: "registry.gitlab.com/postgres-ai/database-lab/dblab-server:3.5.0"
+
+# Cloud control-plane database.
+cloud_db_name: "vritti_cloud"
+cloud_db_owner: "vritti_cloud_owner"
+cloud_db_app: "vritti_cloud_app"
+cloud_db_schema: "cloud"
+cloud_db_migration_schema: "drizzle"
+
+# The agent creates this network for the dev core stack; cloud nginx attaches to it too so it
+# can route *.dev to the dev core-server. Declared external in the cloud compose.
+core_network_name: "vritti-core-net"
+
+# Cloud control-plane secrets — from Infisical (via infisical run), NOT a vault.
+cloud_db_password: "{{ lookup('env', 'CLOUD_DB_PASSWORD') }}"
+cloud_redis_password: "{{ lookup('env', 'CLOUD_REDIS_PASSWORD') }}"
+cloud_jwt_secret: "{{ lookup('env', 'CLOUD_JWT_SECRET') }}"
+cloud_hmac_key: "{{ lookup('env', 'CLOUD_HMAC_KEY') }}"
+cloud_cookie_secret: "{{ lookup('env', 'CLOUD_COOKIE_SECRET') }}"

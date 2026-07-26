@@ -1,0 +1,72 @@
+# Managed by Ansible (roles/cloud_stack). Edge routing for vm1.
+#
+# PUBLIC listener (0.0.0.0:80/443) serves ONLY the genuinely public app surfaces:
+#   cloud.  -> cloud-server        *.dev -> dev core-server
+# Any other Host (admin./dblab./git.) is HARD-REFUSED with 444. Those never arrive on the
+# public IP — they come only through the cloudflared tunnel, which targets internal services
+# directly (see tofu network/zerotrust.tf). This is what makes Cloudflare Access unbypassable:
+# there is no public door to the admin surfaces to spoof a Host header at.
+#
+# ADMIN listener (:8080) is internal-only — never published to the host, reachable solely by
+# cloudflared on the docker network. The public internet cannot route to it.
+
+map $host $public_backend {
+    default                   "";                        # unknown Host -> refused (444) below
+    {{ cloud_domain }}        "cloud-server:3000";
+    ~^.*\.dev\.vrittiai\.com$ "core-server:3002";
+}
+
+# HTTP — ACME challenge + redirect the known public hosts, refuse everything else.
+server {
+    listen 80 default_server;
+    server_name _;
+    location /.well-known/acme-challenge/ { root /var/www/letsencrypt; }
+    location / {
+        if ($public_backend = "") { return 444; }
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS — the public app. Wildcard cert covers every subdomain, so a spoofed admin. SNI still
+# completes the TLS handshake, then falls into the 444 refusal below.
+server {
+    listen 443 ssl default_server;
+    http2 on;
+    server_name _;
+
+    ssl_certificate     /etc/nginx/ssl/vrittiai.com.crt;
+    ssl_certificate_key /etc/nginx/ssl/vrittiai.com.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 25m;
+
+    if ($public_backend = "") { return 444; }
+
+    location / {
+        set $upstream $public_backend;
+        proxy_pass http://$upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+
+# ADMIN — internal only. cloudflared forwards admin.vrittiai.com here (nginx:8080); this port
+# is not published to the host, so nothing on the public internet can reach it.
+server {
+    listen 8080;
+    server_name {{ admin_domain }};
+    client_max_body_size 25m;
+
+    location / {
+        proxy_pass http://cloud-server:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}

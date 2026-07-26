@@ -1,0 +1,30 @@
+# VM1 — cloud control plane + dev core.
+# Ansible owns the host + the cloud compose stack; the agent owns the dev core stack.
+- name: Provision VM1 (cloud control plane + dev core)
+  hosts: vm1
+  become: true
+  # Tag the control plane separately from the dev-core agent, so you can bring up the cloud
+  # stack now (`--tags control-plane`) and add the agent once cloud-server's enroll endpoints exist.
+  roles:
+    - role: base
+      tags: [base, control-plane]
+    - role: docker
+      tags: [docker, control-plane]
+    - role: zfs
+      when: enable_zfs | default(false)
+      tags: [zfs, control-plane]
+    - role: tls
+      when: enable_tls | default(false)
+      tags: [tls, control-plane]
+    # geoip BEFORE cloud_stack — the .mmdb must exist before cloud-server bind-mounts it.
+    - role: geoip
+      when: enable_cloud_stack | default(false)
+      tags: [geoip, control-plane]
+    - role: cloud_stack
+      when: enable_cloud_stack | default(false)
+      tags: [cloud_stack, control-plane]
+    - role: agent
+      tags: [agent, core]
+    # cloudflared last — the app networks it attaches to exist by now (cloud_stack creates the core net).
+    - role: cloudflared
+      tags: [cloudflared, control-plane]

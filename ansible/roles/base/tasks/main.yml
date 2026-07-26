@@ -1,0 +1,97 @@
+---
+# Host baseline: packages, swap, firewall, auto-updates, deploy dirs. Idempotent.
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install baseline packages
+  ansible.builtin.apt:
+    name: "{{ extra_packages }}"
+    state: present
+
+- name: Create swapfile
+  ansible.builtin.command:
+    cmd: "fallocate -l {{ swap_size_gb }}G /swapfile"
+    creates: /swapfile
+
+- name: Secure swapfile permissions
+  ansible.builtin.file:
+    path: /swapfile
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Format swapfile
+  ansible.builtin.command:
+    cmd: mkswap /swapfile
+  register: mkswap
+  changed_when: "'Setting up swapspace' in mkswap.stdout"
+  failed_when: mkswap.rc != 0 and 'already' not in mkswap.stderr
+
+- name: Enable swap now
+  ansible.builtin.command:
+    cmd: swapon /swapfile
+  register: swapon
+  changed_when: swapon.rc == 0
+  failed_when: swapon.rc != 0 and 'already' not in swapon.stderr
+
+- name: Persist swap in fstab
+  ansible.posix.mount:
+    path: none
+    src: /swapfile
+    fstype: swap
+    opts: sw
+    state: present
+
+- name: Tune swappiness low (VM under memory pressure, not thrashing)
+  ansible.posix.sysctl:
+    name: vm.swappiness
+    value: "10"
+    state: present
+    reload: true
+
+- name: Ensure ubuntu deploy user exists
+  ansible.builtin.user:
+    name: ubuntu
+    shell: /bin/bash
+    groups: sudo
+    append: true
+
+- name: Enable unattended security upgrades
+  ansible.builtin.service:
+    name: unattended-upgrades
+    enabled: true
+    state: started
+
+- name: Configure UFW default policies
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+
+- name: Allow required ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "22"
+    - "80"
+    - "443"
+    - "2222"   # Gitea SSH (agent add-on)
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+
+- name: Create deploy directory root
+  ansible.builtin.file:
+    path: /opt/vritti
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: "0755"

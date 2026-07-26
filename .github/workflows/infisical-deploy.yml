@@ -25,11 +25,6 @@ on:
         required: true
       INFISICAL_AUTH_SECRET:
         required: true
-      # Optional - GitHub App connection
-      INFISICAL_GITHUB_APP_CLIENT_SECRET:
-        required: false
-      INFISICAL_GITHUB_APP_PRIVATE_KEY:
-        required: false
       # Backup - Cloudflare R2 credentials (prefixed INFISICAL_ to avoid collision with other VM backup secrets)
       INFISICAL_BACKREST_R2_ACCESS_KEY:
         required: false
@@ -116,29 +111,25 @@ jobs:
               echo "[OK] Downloaded $(basename "${dest}") ($(wc -l < "${dest}") lines)"
             }
 
-            # Base compose file
-            download_file "${RAW}/docker/docker-infisical-compose.yml" "docker-compose.yml"
-
-            # Backup compose override (auto-merged by Docker Compose)
-            download_file "${RAW}/docker/docker-compose.override.yml" "docker-compose.override.yml"
+            # The whole Infisical stack lives under infisical/ in the repo; mirror it flat into
+            # /opt/infisical on the server.
+            # Full compose (app + redis + postgres/pgBackRest + sidecar; backups baked in)
+            download_file "${RAW}/infisical/docker-compose.yml" "docker-compose.yml"
 
             # pgBackRest config
-            download_file "${RAW}/backup/config/pgbackrest.conf" "backup/config/pgbackrest.conf"
+            download_file "${RAW}/infisical/pgbackrest.conf" "pgbackrest.conf"
 
-            # Custom Postgres+pgBackRest Dockerfile and build context
-            download_file "${RAW}/backup/docker/Dockerfile.postgres-pgbackrest" "backup/docker/Dockerfile.postgres-pgbackrest"
-
-            # Backup scripts
-            for SCRIPT in backup-full.sh backup-incremental.sh backup-redis.sh restore-postgres.sh restore-redis.sh verify-backup.sh; do
-              download_file "${RAW}/backup/scripts/${SCRIPT}" "backup/scripts/${SCRIPT}"
-              chmod +x "backup/scripts/${SCRIPT}"
+            # Backup + one-time migration scripts
+            for SCRIPT in backup-full.sh backup-incremental.sh backup-redis.sh restore-postgres.sh restore-redis.sh verify-backup.sh migrate-pg16-to-18.sh; do
+              download_file "${RAW}/infisical/scripts/${SCRIPT}" "scripts/${SCRIPT}"
+              chmod +x "scripts/${SCRIPT}"
             done
 
             # Cron schedule
-            download_file "${RAW}/backup/cron/backup-crontab" "backup/cron/backup-crontab"
+            download_file "${RAW}/infisical/cron/backup-crontab" "cron/backup-crontab"
 
             # env.backup.example (for reference; actual .env.backup written below)
-            download_file "${RAW}/backup/.env.backup.example" "backup/.env.backup.example"
+            download_file "${RAW}/infisical/.env.backup.example" ".env.backup.example"
 
             echo "[OK] All compose and backup files downloaded"
 
@@ -155,12 +146,7 @@ jobs:
             echo "INFISICAL_ENCRYPTION_KEY=${{ secrets.INFISICAL_ENCRYPTION_KEY }}" >> .env
             echo "INFISICAL_AUTH_SECRET=${{ secrets.INFISICAL_AUTH_SECRET }}" >> .env
             echo "INFISICAL_SITE_URL=${{ vars.INFISICAL_SITE_URL }}" >> .env
-            echo "INFISICAL_GITHUB_APP_CLIENT_ID=${{ vars.INFISICAL_GITHUB_APP_CLIENT_ID }}" >> .env
-            echo "INFISICAL_GITHUB_APP_CLIENT_SECRET=${{ secrets.INFISICAL_GITHUB_APP_CLIENT_SECRET }}" >> .env
-            echo "INFISICAL_GITHUB_APP_PRIVATE_KEY=${{ secrets.INFISICAL_GITHUB_APP_PRIVATE_KEY }}" >> .env
-            echo "INFISICAL_GITHUB_APP_SLUG=${{ vars.INFISICAL_GITHUB_APP_SLUG }}" >> .env
-            echo "INFISICAL_GITHUB_APP_ID=${{ vars.INFISICAL_GITHUB_APP_ID }}" >> .env
-            # Backup - pgBackRest and Cloudflare R2 credentials (used by docker-compose.override.yml)
+            # Backup - pgBackRest and Cloudflare R2 credentials (used by docker-compose.yml)
             echo "BACKREST_R2_ENDPOINT=${{ vars.INFISICAL_BACKREST_R2_ENDPOINT }}" >> .env
             echo "BACKREST_R2_BUCKET=${{ vars.INFISICAL_BACKREST_R2_BUCKET }}" >> .env
             echo "BACKREST_R2_ACCESS_KEY=${{ secrets.INFISICAL_BACKREST_R2_ACCESS_KEY }}" >> .env
@@ -169,9 +155,8 @@ jobs:
             echo "BACKREST_REPO2_CIPHER_PASS=${{ secrets.INFISICAL_BACKREST_REPO2_CIPHER_PASS }}" >> .env
             echo "[OK] .env file created with $(wc -l < .env) variables"
 
-            # Write backup/.env.backup for scripts that source it directly (backup-redis.sh etc.)
-            echo "[STEP 6b] Writing backup/.env.backup..."
-            mkdir -p backup
+            # Write .env.backup for scripts that source it directly (backup-redis.sh etc.)
+            echo "[STEP 6b] Writing .env.backup..."
             {
               echo "BACKREST_R2_ENDPOINT=${{ vars.INFISICAL_BACKREST_R2_ENDPOINT }}"
               echo "BACKREST_R2_BUCKET=${{ vars.INFISICAL_BACKREST_R2_BUCKET }}"
@@ -180,9 +165,9 @@ jobs:
               echo "REDIS_BACKUP_LOCAL_DIR=/opt/vritti/backups/infisical/redis"
               echo "REDIS_CONTAINER=infisical-redis"
               echo "BACKUP_MAX_AGE_HOURS=26"
-            } > backup/.env.backup
-            chmod 600 backup/.env.backup
-            echo "[OK] backup/.env.backup written"
+            } > .env.backup
+            chmod 600 .env.backup
+            echo "[OK] .env.backup written"
 
             # Verify required environment variables
             echo "[STEP 7/9] Verifying environment variables..."
@@ -216,10 +201,7 @@ jobs:
             sudo chown -R $(whoami):$(whoami) /opt/vritti/backups/infisical
             echo "[OK] Backup directories ready"
 
-            # Build the custom postgres+pgBackRest image
-            echo "[STEP 8c] Building custom postgres+pgBackRest image..."
-            docker compose build infisical-postgres
-            echo "[OK] Custom image built"
+            # Postgres+pgBackRest image is pulled from GHCR by `docker compose up` (no local build).
 
             # Stop existing containers if running
             echo "[STEP 9/9] Deploying containers..."
@@ -239,7 +221,7 @@ jobs:
             # Install cron schedule (only if not already installed)
             echo "[BACKUP] Installing backup cron schedule..."
             if ! crontab -l 2>/dev/null | grep -q "infisical-backup"; then
-              crontab /opt/infisical/backup/cron/backup-crontab
+              crontab /opt/infisical/cron/backup-crontab
               echo "[OK] Backup cron schedule installed"
             else
               echo "[OK] Backup cron schedule already installed"
@@ -319,7 +301,7 @@ jobs:
           echo "### Services Deployed" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Infisical (port 8080)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Redis (internal, AOF+RDB persistence enabled)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ PostgreSQL 16 (internal, WAL archiving enabled)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ PostgreSQL 18.4 (internal, WAL archiving enabled)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ pgBackRest sidecar (backup/restore)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Backup Schedule (UTC)" >> $GITHUB_STEP_SUMMARY

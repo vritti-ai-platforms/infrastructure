@@ -1,0 +1,8 @@
+# VM2 — prod core only. Minimal host + agent; the agent does everything else.
+- name: Provision VM2 (prod core)
+  hosts: vm2
+  become: true
+  roles:
+    - role: base
+    - role: docker
+    - role: agent

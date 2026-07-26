@@ -1,0 +1,23 @@
+# Managed by Ansible (roles/cloud_stack).
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events { worker_connections 1024; }
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+    keepalive_timeout 65;
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript;
+
+    access_log /var/log/nginx/access.log;
+
+    # Docker embedded DNS so backends resolve at request time (nginx boots without them).
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    include /etc/nginx/conf.d/*.conf;
+}

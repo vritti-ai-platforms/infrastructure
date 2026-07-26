@@ -1,0 +1,79 @@
+---
+# Downloads the MaxMind GeoLite2 DB with geoipupdate (license key from vault) and keeps it fresh
+# with a weekly systemd timer. Replaces the 64 MB .mmdb that used to be committed via Git LFS.
+# Runs BEFORE cloud_stack so the file exists when cloud-server bind-mounts it.
+
+- name: Require MaxMind creds from Infisical (run the playbook under `infisical run`)
+  ansible.builtin.assert:
+    that:
+      - lookup('env', 'MAXMIND_ACCOUNT_ID') | length > 0
+      - lookup('env', 'MAXMIND_LICENSE_KEY') | length > 0
+    fail_msg: >-
+      MAXMIND_ACCOUNT_ID / MAXMIND_LICENSE_KEY are not in the environment. Run Ansible under
+      `infisical run --projectId 8f447810-a5c7-4a83-a4f3-1a775999edd9 --env prod -- ansible-playbook ...`.
+
+- name: Install geoipupdate
+  ansible.builtin.apt:
+    name: geoipupdate
+    state: present
+    update_cache: true
+
+- name: Ensure geoip directory
+  ansible.builtin.file:
+    path: "{{ geoip_dir }}"
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: "0755"
+
+- name: Write geoipupdate config
+  ansible.builtin.template:
+    src: GeoIP.conf.j2
+    dest: /etc/GeoIP.conf
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Fetch the GeoLite2 database now
+  ansible.builtin.command: geoipupdate
+  register: geoipupdate_run
+  changed_when: "'Downloaded' in (geoipupdate_run.stdout + geoipupdate_run.stderr)"
+
+- name: Install weekly refresh service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/geoip-update.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Refresh MaxMind GeoLite2 database
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/geoipupdate
+      # cloud-server loads the DB at startup, so bounce it to pick up a fresh file (brief blip).
+      ExecStartPost=-/usr/bin/docker restart cloud-server
+
+- name: Install weekly refresh timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/geoip-update.timer
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Weekly MaxMind GeoLite2 refresh
+
+      [Timer]
+      OnCalendar=weekly
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Enable the weekly refresh timer
+  ansible.builtin.systemd:
+    name: geoip-update.timer
+    enabled: true
+    state: started
+    daemon_reload: true

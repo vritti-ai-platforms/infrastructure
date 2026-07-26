@@ -1,0 +1,2 @@
+# Secrets come from Infisical (injected via `infisical run`), never committed here.
+*.retry

@@ -1,0 +1,193 @@
+# Infisical Secret Manager — full stack (app + redis + postgres with pgBackRest/WAL archiving +
+# an idle pgbackrest sidecar for restore). Deployed via .github/workflows/infisical-deploy.yml.
+#
+# Backups are baked in here (no separate override file). Required .env on the server
+# (/opt/infisical/.env), written by the deploy workflow:
+#   BACKREST_R2_ENDPOINT, BACKREST_R2_BUCKET, BACKREST_R2_ACCESS_KEY, BACKREST_R2_SECRET_KEY
+#   BACKREST_REPO1_CIPHER_PASS, BACKREST_REPO2_CIPHER_PASS   (distinct passphrases)
+
+services:
+  infisical:
+    image: ghcr.io/${GITHUB_ORG:-vritti-ai-platforms}/infisical-secret-manager:${INFISICAL_VERSION:-latest-main}
+    container_name: infisical
+    restart: unless-stopped
+    ports:
+      - "80:8080"
+    depends_on:
+      infisical-redis:
+        condition: service_started
+      infisical-postgres:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=production
+      # Encryption & Auth
+      - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}
+      - AUTH_SECRET=${INFISICAL_AUTH_SECRET}
+      # Database (internal PostgreSQL container - hardcoded, port not exposed externally)
+      - DB_CONNECTION_URI=postgres://infisical:infisical_internal@infisical-postgres:5432/infisical_db
+      - POSTGRES_USER=infisical
+      - POSTGRES_PASSWORD=infisical_internal
+      - POSTGRES_DB=infisical_db
+      # Redis (internal)
+      - REDIS_URL=redis://infisical-redis:6379
+      # Site URL
+      - SITE_URL=${INFISICAL_SITE_URL}
+      # SMTP (uses existing Brevo if available)
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-}
+      - SMTP_FROM_ADDRESS=${SENDER_EMAIL:-}
+      - SMTP_FROM_NAME=${SENDER_NAME:-Infisical}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      # Telemetry
+      - TELEMETRY_ENABLED=false
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - infisical-network
+
+  infisical-redis:
+    image: redis:7-alpine
+    container_name: infisical-redis
+    restart: unless-stopped
+    # AOF + RDB persistence so backup-redis.sh always has a fresh dump to copy.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfilename
+      - appendonly.aof
+      - --save
+      - "60 1"
+      - --save
+      - "300 10"
+      - --save
+      - "900 1000"
+      - --dir
+      - /data
+    volumes:
+      - infisical-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - infisical-network
+
+  # Postgres on the shared GHCR Postgres+pgBackRest image (built by CI, never locally), with WAL
+  # archiving on so PITR works. archive_command pushes WAL to repo1 (local) + repo2 (R2).
+  infisical-postgres:
+    image: ghcr.io/${GITHUB_ORG:-vritti-ai-platforms}/postgres-pgbackrest:18.4
+    container_name: infisical-postgres
+    restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - "archive_command=pgbackrest --stanza=infisical archive-push %p"
+      - -c
+      - archive_timeout=60
+    environment:
+      - POSTGRES_USER=infisical
+      - POSTGRES_PASSWORD=infisical_internal
+      - POSTGRES_DB=infisical_db
+      # pgBackRest (repos + secrets injected from .env)
+      - PGBACKREST_REPO1_CIPHER_TYPE=aes-256-cbc
+      - PGBACKREST_REPO1_CIPHER_PASS=${BACKREST_REPO1_CIPHER_PASS}
+      - PGBACKREST_REPO2_CIPHER_TYPE=aes-256-cbc
+      - PGBACKREST_REPO2_CIPHER_PASS=${BACKREST_REPO2_CIPHER_PASS}
+      - PGBACKREST_REPO2_S3_BUCKET=${BACKREST_R2_BUCKET}
+      - PGBACKREST_REPO2_S3_ENDPOINT=${BACKREST_R2_ENDPOINT}
+      - PGBACKREST_REPO2_S3_KEY=${BACKREST_R2_ACCESS_KEY}
+      - PGBACKREST_REPO2_S3_KEY_SECRET=${BACKREST_R2_SECRET_KEY}
+      - PGBACKREST_PG1_PASSWORD=${INFISICAL_INTERNAL_DB_PASSWORD:-infisical_internal}
+    volumes:
+      - infisical-postgres-data:/var/lib/postgresql/data
+      - ./pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - pgbackrest_local:/var/lib/pgbackrest
+      - pgbackrest_log:/var/log/pgbackrest
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U infisical -d infisical_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - infisical-network
+
+  # Idle sidecar for RESTORE (has RW access to the data volume). Backups run via `docker exec`
+  # into infisical-postgres on the host cron schedule (cron/backup-crontab).
+  infisical-pgbackrest:
+    image: ghcr.io/${GITHUB_ORG:-vritti-ai-platforms}/postgres-pgbackrest:18.4
+    container_name: infisical-pgbackrest
+    restart: unless-stopped
+    depends_on:
+      infisical-postgres:
+        condition: service_healthy
+    command: ["sleep", "infinity"]
+    environment:
+      - PGBACKREST_REPO1_CIPHER_TYPE=aes-256-cbc
+      - PGBACKREST_REPO1_CIPHER_PASS=${BACKREST_REPO1_CIPHER_PASS}
+      - PGBACKREST_REPO2_CIPHER_TYPE=aes-256-cbc
+      - PGBACKREST_REPO2_CIPHER_PASS=${BACKREST_REPO2_CIPHER_PASS}
+      - PGBACKREST_REPO2_S3_BUCKET=${BACKREST_R2_BUCKET}
+      - PGBACKREST_REPO2_S3_ENDPOINT=${BACKREST_R2_ENDPOINT}
+      - PGBACKREST_REPO2_S3_KEY=${BACKREST_R2_ACCESS_KEY}
+      - PGBACKREST_REPO2_S3_KEY_SECRET=${BACKREST_R2_SECRET_KEY}
+      - PGBACKREST_PG1_PASSWORD=${INFISICAL_INTERNAL_DB_PASSWORD:-infisical_internal}
+    volumes:
+      - infisical-postgres-data:/var/lib/postgresql/data
+      - ./pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - pgbackrest_local:/var/lib/pgbackrest
+      - pgbackrest_log:/var/log/pgbackrest
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - infisical-network
+
+volumes:
+  infisical-redis-data:
+    driver: local
+  infisical-postgres-data:
+    driver: local
+  pgbackrest_local:
+    driver: local
+  pgbackrest_log:
+    driver: local
+
+networks:
+  infisical-network:
+    name: infisical-network
+    driver: bridge

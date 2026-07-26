@@ -1,0 +1,3 @@
+---
+geoip_dir: /opt/vritti/geoip
+geoip_edition: "GeoLite2-City"

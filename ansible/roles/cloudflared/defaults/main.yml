@@ -1,0 +1,7 @@
+---
+# cloudflared runs as a container joined to the app docker network(s) so tunnel ingress can
+# target internal service names (nginx:8080, dblab:2345, gitea:3000) — nothing is published
+# to the host for the admin surfaces. Ingress rules themselves live in tofu (config_src=cloudflare).
+cloudflared_image: "cloudflare/cloudflared:2024.10.1"
+tofu_bin: "tofu"
+tofu_network_dir: "{{ playbook_dir }}/../tofu/network"

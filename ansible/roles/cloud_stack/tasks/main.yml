@@ -1,0 +1,115 @@
+---
+# Deploys the cloud control-plane compose stack to /opt/vritti and brings it up:
+# infra first, then migrations (owner conn), then the app services.
+
+- name: Create cloud stack directories
+  ansible.builtin.file:
+    path: "/opt/vritti/{{ item }}"
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: "0755"
+  loop:
+    - cloud
+    - www
+    - ssl
+    - nginx
+    - nginx/conf.d
+    - logs
+    - logs/nginx
+    - logs/cloud
+    - pgdata
+    - backup
+    - pgbackrest
+    - dblab
+
+- name: Ensure the external core network exists (shared with the agent's dev core)
+  community.docker.docker_network:
+    name: "{{ core_network_name }}"
+    driver: bridge
+    state: present
+
+- name: Template compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: /opt/vritti/docker-compose.yml
+    owner: ubuntu
+    group: ubuntu
+    mode: "0644"
+
+- name: Template compose interpolation env (.env)
+  ansible.builtin.template:
+    src: root.env.j2
+    dest: /opt/vritti/.env
+    owner: ubuntu
+    group: ubuntu
+    mode: "0600"
+  no_log: true
+
+- name: Template cloud-server env
+  ansible.builtin.template:
+    src: cloud.env.j2
+    dest: /opt/vritti/cloud/.env
+    owner: ubuntu
+    group: ubuntu
+    mode: "0600"
+  no_log: true
+
+- name: Template nginx config
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/opt/vritti/{{ item.dest }}"
+    owner: ubuntu
+    group: ubuntu
+    mode: "0644"
+  loop:
+    - { src: nginx.conf.j2, dest: nginx/nginx.conf }
+    - { src: cloud.conf.j2, dest: nginx/conf.d/cloud.conf }
+
+- name: Start infra services (postgres, redis, nats)
+  community.docker.docker_compose_v2:
+    project_src: /opt/vritti
+    services:
+      - postgres
+      - redis
+      - nats
+    state: present
+
+- name: Wait for Postgres to be healthy
+  ansible.builtin.command:
+    cmd: docker inspect -f '{% raw %}{{.State.Health.Status}}{% endraw %}' postgres
+  register: pg_health
+  until: pg_health.stdout == "healthy"
+  retries: 30
+  delay: 3
+  changed_when: false
+
+- name: Provision cloud DB roles + schema
+  ansible.builtin.command:
+    cmd: >-
+      docker exec postgres sh -c "PGPASSWORD='{{ cloud_db_password }}'
+      psql -v ON_ERROR_STOP=1 -U postgres -d {{ cloud_db_name }} -c \"
+      DO \$\$ BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ cloud_db_owner }}') THEN
+          CREATE ROLE {{ cloud_db_owner }} LOGIN PASSWORD '{{ cloud_db_password }}';
+        END IF;
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ cloud_db_app }}') THEN
+          CREATE ROLE {{ cloud_db_app }} LOGIN PASSWORD '{{ cloud_db_password }}';
+        END IF;
+      END \$\$;
+      ALTER DATABASE {{ cloud_db_name }} OWNER TO {{ cloud_db_owner }};\""
+  register: db_provision
+  changed_when: db_provision.rc == 0
+  no_log: true
+
+- name: Run cloud migrations (owner conn applies migrations + grants)
+  ansible.builtin.command:
+    cmd: docker compose --profile migrate run --rm cloud-migrate
+    chdir: /opt/vritti
+  register: cloud_migrate
+  changed_when: "'applied' in cloud_migrate.stdout or cloud_migrate.rc == 0"
+
+- name: Bring up the full cloud stack
+  community.docker.docker_compose_v2:
+    project_src: /opt/vritti
+    state: present

@@ -1,0 +1,22 @@
+# Managed by Ansible (roles/agent).
+[Unit]
+Description=Vritti Application Agent
+After=docker.service
+Requires=docker.service
+
+[Service]
+# Clean any prior container, then run the agent with access to the Docker socket, its state
+# dir, and the core stack root (bind-mount source the agent renders containers against).
+ExecStartPre=-/usr/bin/docker rm -f vritti-agent
+ExecStart=/usr/bin/docker run --rm --name vritti-agent \
+  --env-file /etc/vritti-agent/agent.env \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v {{ agent_data_dir }}:{{ agent_data_dir }} \
+  -v {{ agent_stack_root }}:{{ agent_stack_root }} \
+  {{ agent_image }}:{{ agent_image_tag }}
+ExecStop=/usr/bin/docker stop vritti-agent
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

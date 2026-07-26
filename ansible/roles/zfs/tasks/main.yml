@@ -1,0 +1,34 @@
+---
+# ZFS pool backing DbLab thin clones. DbLab's physical mode snapshots a ZFS dataset to
+# spin up instant thin clones of the cloud Postgres for dev/testing.
+
+- name: Install ZFS utilities
+  ansible.builtin.apt:
+    name: zfsutils-linux
+    state: present
+    update_cache: true
+
+- name: Check if zpool already exists
+  ansible.builtin.command:
+    cmd: "zpool list -H -o name {{ zfs_pool }}"
+  register: zpool_check
+  changed_when: false
+  failed_when: false
+
+- name: Create zpool on the data disk
+  ansible.builtin.command:
+    cmd: "zpool create -f {{ zfs_pool }} {{ zfs_device }}"
+  when: zpool_check.rc != 0
+  register: zpool_create
+  changed_when: zpool_create.rc == 0
+
+- name: Create DbLab clones dataset
+  ansible.builtin.command:
+    cmd: "zfs create -p {{ zfs_dataset }}"
+    creates: "/{{ zfs_dataset }}"
+
+- name: Set dataset properties for clone performance
+  ansible.builtin.command:
+    cmd: "zfs set compression=lz4 atime=off {{ zfs_dataset }}"
+  register: zfs_props
+  changed_when: false
