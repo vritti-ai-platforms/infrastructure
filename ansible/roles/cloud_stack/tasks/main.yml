@@ -1,6 +1,8 @@
 ---
-# Deploys the cloud control-plane compose stack to /opt/vritti and brings it up:
-# infra first, then migrations (owner conn), then the app services.
+# Deploys the cloud control-plane stack to /opt/vritti. cloud-server's env is the vritti-cloud
+# Infisical `production` env, exported on the control node. The containerized Postgres is
+# initialized with production's own DB creds (single role = owner = app), so no separate role
+# provisioning is needed; migrations create the `cloud` schema.
 
 - name: Create cloud stack directories
   ansible.builtin.file:
@@ -19,43 +21,75 @@
     - logs/nginx
     - logs/cloud
     - pgdata
-    - backup
-    - pgbackrest
     - dblab
+    - geoip
 
-- name: Ensure the external core network exists (shared with the agent's dev core)
-  community.docker.docker_network:
-    name: "{{ core_network_name }}"
-    driver: bridge
-    state: present
+- name: Give cloud-server's non-root user (nestjs) ownership of its log dir
+  ansible.builtin.file:
+    path: /opt/vritti/logs/cloud
+    state: directory
+    owner: "{{ cloud_server_uid }}"
+    group: "{{ cloud_server_gid }}"
+    mode: "0755"
+    recurse: true
 
-- name: Template compose file
-  ansible.builtin.template:
-    src: docker-compose.yml.j2
-    dest: /opt/vritti/docker-compose.yml
-    owner: ubuntu
-    group: ubuntu
-    mode: "0644"
-
-- name: Template compose interpolation env (.env)
-  ansible.builtin.template:
-    src: root.env.j2
-    dest: /opt/vritti/.env
-    owner: ubuntu
-    group: ubuntu
-    mode: "0600"
+- name: Export cloud-server env from vritti-cloud via machine identity (control node; unquote for env_file)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    TOKEN=$(infisical login --method=universal-auth \
+      --client-id="$ANSI_INFISICAL_CLIENT_ID" --client-secret="$ANSI_INFISICAL_CLIENT_SECRET" \
+      --domain={{ infisical_domain }} --plain --silent)
+    infisical export --token="$TOKEN" --domain={{ infisical_domain }} \
+      --projectId={{ vritti_cloud_project_id }} --env={{ vritti_cloud_env }} \
+      --path={{ vritti_cloud_path }} --format=dotenv \
+      | sed -E "s/^([A-Za-z_][A-Za-z0-9_]*)='(.*)'$/\1=\2/"
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: cloud_env_export
+  changed_when: false
   no_log: true
 
-- name: Template cloud-server env
-  ansible.builtin.template:
-    src: cloud.env.j2
+- name: Sanity-check the export resolved (import + overrides)
+  ansible.builtin.assert:
+    that:
+      - cloud_env_export.stdout_lines | length > 30
+      - "'PRIMARY_DB_DATABASE_DIRECT_URL=' in cloud_env_export.stdout"
+      - "'JWT_SECRET=' in cloud_env_export.stdout"
+    fail_msg: "production export incomplete — check the shared import + control-node Infisical auth."
+
+- name: Derive the DB + redis creds the containers need
+  ansible.builtin.set_fact:
+    _db_user: "{{ (cloud_env_export.stdout | regex_findall('PRIMARY_DB_USERNAME=([^\\n]+)'))[0] }}"
+    _db_pass: "{{ (cloud_env_export.stdout | regex_findall('PRIMARY_DB_PASSWORD=([^\\n]+)'))[0] }}"
+    _db_name: "{{ (cloud_env_export.stdout | regex_findall('PRIMARY_DB_DATABASE=([^\\n]+)'))[0] }}"
+    _redis_pass: "{{ (cloud_env_export.stdout | regex_findall('REDIS_URL=redis://:([^@]+)@'))[0] }}"
+  no_log: true
+
+- name: Write cloud-server env file (/opt/vritti/cloud/.env)
+  ansible.builtin.copy:
+    content: "{{ cloud_env_export.stdout }}\n"
     dest: /opt/vritti/cloud/.env
     owner: ubuntu
     group: ubuntu
     mode: "0600"
   no_log: true
 
-- name: Template nginx config
+- name: Write postgres init env + compose interpolation env
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/opt/vritti/{{ item.dest }}"
+    owner: ubuntu
+    group: ubuntu
+    mode: "0600"
+  loop:
+    - { src: cloud-db.env.j2, dest: cloud-db.env }
+    - { src: root.env.j2, dest: .env }
+  no_log: true
+
+- name: Template compose + nginx + DbLab config
   ansible.builtin.template:
     src: "{{ item.src }}"
     dest: "/opt/vritti/{{ item.dest }}"
@@ -63,53 +97,141 @@
     group: ubuntu
     mode: "0644"
   loop:
+    - { src: docker-compose.yml.j2, dest: docker-compose.yml }
     - { src: nginx.conf.j2, dest: nginx/nginx.conf }
     - { src: cloud.conf.j2, dest: nginx/conf.d/cloud.conf }
+    - { src: dblab-server.yml.j2, dest: dblab/server.yml }
+
+- name: Template pgBackRest config + backup scripts (cloud DB -> R2)
+  when: cloud_backrest_enabled | bool
+  block:
+    - name: Template cloud pgBackRest config
+      ansible.builtin.template:
+        src: pgbackrest.conf.j2
+        dest: /opt/vritti/pgbackrest.conf
+        owner: ubuntu
+        group: ubuntu
+        mode: "0644"
+
+    - name: Ensure backup scripts dir
+      ansible.builtin.file:
+        path: /opt/vritti/backup/scripts
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"
+
+    - name: Template backup + restore scripts
+      ansible.builtin.template:
+        src: "backup/{{ item }}.j2"
+        dest: "/opt/vritti/backup/scripts/{{ item }}"
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"
+      loop:
+        - backup-full.sh
+        - backup-incremental.sh
+        - verify-backup.sh
+        - restore-postgres.sh
+
+- name: Ensure the external core network exists (shared edge for the agent's dev core)
+  community.docker.docker_network:
+    name: "{{ core_network_name }}"
+    driver: bridge
+    state: present
 
 - name: Start infra services (postgres, redis, nats)
   community.docker.docker_compose_v2:
     project_src: /opt/vritti
-    services:
-      - postgres
-      - redis
-      - nats
+    services: [postgres, redis, nats]
     state: present
 
 - name: Wait for Postgres to be healthy
-  ansible.builtin.command:
-    cmd: docker inspect -f '{% raw %}{{.State.Health.Status}}{% endraw %}' postgres
+  ansible.builtin.command: docker inspect -f '{% raw %}{{.State.Health.Status}}{% endraw %}' postgres
   register: pg_health
   until: pg_health.stdout == "healthy"
   retries: 30
   delay: 3
   changed_when: false
 
-- name: Provision cloud DB roles + schema
-  ansible.builtin.command:
-    cmd: >-
-      docker exec postgres sh -c "PGPASSWORD='{{ cloud_db_password }}'
-      psql -v ON_ERROR_STOP=1 -U postgres -d {{ cloud_db_name }} -c \"
-      DO \$\$ BEGIN
-        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ cloud_db_owner }}') THEN
-          CREATE ROLE {{ cloud_db_owner }} LOGIN PASSWORD '{{ cloud_db_password }}';
-        END IF;
-        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ cloud_db_app }}') THEN
-          CREATE ROLE {{ cloud_db_app }} LOGIN PASSWORD '{{ cloud_db_password }}';
-        END IF;
-      END \$\$;
-      ALTER DATABASE {{ cloud_db_name }} OWNER TO {{ cloud_db_owner }};\""
-  register: db_provision
-  changed_when: db_provision.rc == 0
-  no_log: true
-
 - name: Run cloud migrations (owner conn applies migrations + grants)
   ansible.builtin.command:
     cmd: docker compose --profile migrate run --rm cloud-migrate
     chdir: /opt/vritti
   register: cloud_migrate
-  changed_when: "'applied' in cloud_migrate.stdout or cloud_migrate.rc == 0"
+  changed_when: cloud_migrate.rc == 0
 
-- name: Bring up the full cloud stack
+- name: Install oras (pull the cloud-web bundle from GHCR)
+  ansible.builtin.unarchive:
+    src: "https://github.com/oras-project/oras/releases/download/v{{ oras_version }}/oras_{{ oras_version }}_linux_{{ docker_apt_arch }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include: [oras]
+    mode: "0755"
+    creates: /usr/local/bin/oras
+
+- name: Pull + extract the cloud-web SPA to www/cloud
+  ansible.builtin.shell: |
+    set -euo pipefail
+    echo "$GHCR_TOKEN" | oras login ghcr.io -u "$GHCR_USER" --password-stdin
+    rm -rf /tmp/cloudweb && mkdir -p /tmp/cloudweb
+    oras pull {{ cloud_web_image }}:{{ cloud_web_tag }} -o /tmp/cloudweb
+    rm -rf /opt/vritti/www/cloud && mkdir -p /opt/vritti/www/cloud
+    tar -xzf /tmp/cloudweb/web.tar.gz -C /opt/vritti/www/cloud
+  args:
+    executable: /bin/bash
+  environment:
+    GHCR_TOKEN: "{{ ghcr_token }}"
+    GHCR_USER: "{{ ghcr_username }}"
+  changed_when: true
+  no_log: true
+
+- name: Bring up the full cloud stack (nginx, cloud-server, dblab)
   community.docker.docker_compose_v2:
     project_src: /opt/vritti
     state: present
+
+- name: Initialize + schedule cloud DB backups (pgBackRest -> R2)
+  when: cloud_backrest_enabled | bool
+  block:
+    - name: Create the pgBackRest stanza (idempotent)
+      ansible.builtin.command:
+        cmd: docker exec -u postgres postgres pgbackrest --stanza={{ cloud_backrest_stanza }} stanza-create
+      changed_when: false
+
+    - name: Seed an initial full backup (repo1 local + repo2 R2)
+      ansible.builtin.command:
+        cmd: /opt/vritti/backup/scripts/backup-full.sh
+      register: initial_backup
+      changed_when: initial_backup.rc == 0
+
+    - name: Schedule weekly full backup (Sun 02:00 UTC)
+      ansible.builtin.cron:
+        name: cloud-db-backup-full
+        weekday: "0"
+        hour: "2"
+        minute: "0"
+        job: "/opt/vritti/backup/scripts/backup-full.sh >> /var/log/vritti-cloud-backup.log 2>&1"
+
+    - name: Schedule daily incremental backup (Mon-Sat 02:00 UTC)
+      ansible.builtin.cron:
+        name: cloud-db-backup-incremental
+        weekday: "1-6"
+        hour: "2"
+        minute: "0"
+        job: "/opt/vritti/backup/scripts/backup-incremental.sh >> /var/log/vritti-cloud-backup.log 2>&1"
+
+    - name: Schedule daily backup verification (04:00 UTC)
+      ansible.builtin.cron:
+        name: cloud-db-backup-verify
+        hour: "4"
+        minute: "0"
+        job: "/opt/vritti/backup/scripts/verify-backup.sh >> /var/log/vritti-cloud-backup.log 2>&1"
+
+    - name: Rotate the backup log weekly (Sun 05:00 UTC)
+      ansible.builtin.cron:
+        name: cloud-db-backup-logrotate
+        weekday: "0"
+        hour: "5"
+        minute: "0"
+        job: "truncate -s 0 /var/log/vritti-cloud-backup.log"

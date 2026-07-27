@@ -1,5 +1,11 @@
-# Reads EXCLOUD_API_KEY / EXCLOUD_ORG_ID from the environment (injected by `infisical run`).
-provider "excloud" {}
+# Credentials come from Infisical as TF_VAR_* (mapped to the variables below); no raw env reads.
+#   TF_VAR_EXCLOUD_API_KEY, TF_VAR_EXCLOUD_ORG_ID   -> excloud
+#   TF_VAR_ANSI_CLOUDFLARE_API_TOKEN                -> cloudflare (also used by ansible)
+provider "excloud" {
+  api_key = var.EXCLOUD_API_KEY
+  org_id  = var.EXCLOUD_ORG_ID
+}
 
-# Reads CLOUDFLARE_API_TOKEN from the environment (needs Zone:DNS:Edit on vrittiai.com).
-provider "cloudflare" {}
+provider "cloudflare" {
+  api_token = var.ANSI_CLOUDFLARE_API_TOKEN
+}

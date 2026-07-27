@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Managed by Ansible (roles/cloud_stack). DESTRUCTIVE restore of the cloud DB from pgBackRest.
+# Restores into ./pgdata via the idle cloud-pgbackrest sidecar, then restarts postgres.
+# Stanza: {{ cloud_backrest_stanza }}.
+#
+# Usage:
+#   restore-postgres.sh                       # latest from R2 (repo2), delta
+#   restore-postgres.sh --repo=1              # from the local repo instead
+#   restore-postgres.sh --repo=2 --type=time --target="2026-07-27 10:00:00+00"   # PITR
+set -euo pipefail
+export PATH=/usr/local/bin:/usr/bin:/bin
+
+STANZA="{{ cloud_backrest_stanza }}"
+# Default to the R2 repo (repo2) when called with no args. (Positional params instead of an
+# array so we never write bash ${#...}, which Jinja would misread as a {# comment #}.)
+if [ "$#" -eq 0 ]; then set -- --repo=2; fi
+
+echo "This will OVERWRITE the cloud DB in ./pgdata. Ctrl-C within 10s to abort."
+sleep 10
+
+cd /opt/vritti
+echo "Stopping cloud-server + postgres..."
+docker compose stop cloud-server postgres
+
+echo "Restoring (stanza=$STANZA $*) via cloud-pgbackrest sidecar..."
+docker exec -u postgres cloud-pgbackrest pgbackrest --stanza="$STANZA" --delta "$@" restore
+
+echo "Starting postgres..."
+docker compose start postgres
+echo "Restore complete. Verify the DB, then: docker compose start cloud-server"

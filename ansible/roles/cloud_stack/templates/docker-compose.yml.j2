@@ -64,25 +64,78 @@ services:
     image: {{ cloud_postgres_image }}
     container_name: postgres
     restart: unless-stopped
+    # DB creds come from production (single role = owner = app); see cloud-db.env.
+    env_file: [./cloud-db.env]
+{% if cloud_backrest_enabled | bool %}
+    # WAL archiving -> pgBackRest (repo1 local + repo2 R2, stanza `{{ cloud_backrest_stanza }}`).
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - "archive_command=pgbackrest --stanza={{ cloud_backrest_stanza }} archive-push %p"
+      - -c
+      - archive_timeout=60
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_SUPER_PASSWORD:?set in .env}
-      - POSTGRES_DB={{ cloud_db_name }}
-      - PGDATA=/var/lib/postgresql/data/pgdata
+      - PGBACKREST_REPO1_CIPHER_TYPE=aes-256-cbc
+      - PGBACKREST_REPO1_CIPHER_PASS=${CLOUD_BACKREST_REPO1_CIPHER_PASS}
+      - PGBACKREST_REPO2_CIPHER_TYPE=aes-256-cbc
+      - PGBACKREST_REPO2_CIPHER_PASS=${CLOUD_BACKREST_REPO2_CIPHER_PASS}
+      - PGBACKREST_REPO2_S3_BUCKET=${CLOUD_BACKREST_R2_BUCKET}
+      - PGBACKREST_REPO2_S3_ENDPOINT=${CLOUD_BACKREST_R2_ENDPOINT}
+      - PGBACKREST_REPO2_S3_KEY=${CLOUD_BACKREST_R2_ACCESS_KEY}
+      - PGBACKREST_REPO2_S3_KEY_SECRET=${CLOUD_BACKREST_R2_SECRET_KEY}
+      - PGBACKREST_PG1_PASSWORD=${CLOUD_DB_PASSWORD}
+{% endif %}
     volumes:
       - ./pgdata:/var/lib/postgresql/data
-      - ./backup:/var/lib/pgbackrest
-      - ./pgbackrest:/etc/pgbackrest
+{% if cloud_backrest_enabled | bool %}
+      - ./pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - pgbackrest_local:/var/lib/pgbackrest
+      - pgbackrest_log:/var/log/pgbackrest
+{% endif %}
     expose: ["5432"]
     networks: [cloud]
     mem_limit: 512m
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d {{ cloud_db_name }}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
     logging: *logging
+
+{% if cloud_backrest_enabled | bool %}
+  # Idle sidecar for RESTORE (RW access to ./pgdata). Scheduled backups run via `docker exec` into
+  # the postgres container on the host cron (see roles/cloud_stack backup scripts + cron install).
+  cloud-pgbackrest:
+    image: {{ cloud_postgres_image }}
+    container_name: cloud-pgbackrest
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    command: ["sleep", "infinity"]
+    environment:
+      - PGBACKREST_REPO1_CIPHER_TYPE=aes-256-cbc
+      - PGBACKREST_REPO1_CIPHER_PASS=${CLOUD_BACKREST_REPO1_CIPHER_PASS}
+      - PGBACKREST_REPO2_CIPHER_TYPE=aes-256-cbc
+      - PGBACKREST_REPO2_CIPHER_PASS=${CLOUD_BACKREST_REPO2_CIPHER_PASS}
+      - PGBACKREST_REPO2_S3_BUCKET=${CLOUD_BACKREST_R2_BUCKET}
+      - PGBACKREST_REPO2_S3_ENDPOINT=${CLOUD_BACKREST_R2_ENDPOINT}
+      - PGBACKREST_REPO2_S3_KEY=${CLOUD_BACKREST_R2_ACCESS_KEY}
+      - PGBACKREST_REPO2_S3_KEY_SECRET=${CLOUD_BACKREST_R2_SECRET_KEY}
+      - PGBACKREST_PG1_PASSWORD=${CLOUD_DB_PASSWORD}
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+      - ./pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - pgbackrest_local:/var/lib/pgbackrest
+      - pgbackrest_log:/var/log/pgbackrest
+    networks: [cloud]
+    mem_limit: 256m
+    logging: *logging
+{% endif %}
 
   redis:
     image: {{ cloud_redis_image }}
@@ -112,23 +165,30 @@ services:
     mem_limit: 96m
     logging: *logging
 
-  # DbLab (thin clones) — dev-only, behind dblab. + Zero-Trust. Needs ZFS + the docker socket.
-  # Started on demand:  docker compose --profile dblab up -d dblab
+  # DbLab (thin clones) — dev-only, behind dblab. + Zero-Trust. Uses ZFS (file-vdev pool) + the
+  # docker socket to spin per-clone Postgres containers. Config in dblab/server.yml.
   dblab:
     image: {{ cloud_dblab_image }}
     container_name: dblab
     restart: unless-stopped
-    profiles: ["dblab"]
     privileged: true
     environment: [DLE_COMPUTE_ENV=docker]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /var/lib/dblab:/var/lib/dblab:rshared
-      - ./dblab/server.yml:/home/dblab/configs/server.yml:ro
+      - {{ dblab_mount_dir }}:{{ dblab_mount_dir }}:rshared
+      - ./dblab:/home/dblab/configs
     expose: ["2345"]
     networks: [cloud]
     mem_limit: 512m
     logging: *logging
+
+{% if cloud_backrest_enabled | bool %}
+volumes:
+  pgbackrest_local:
+    driver: local
+  pgbackrest_log:
+    driver: local
+{% endif %}
 
 networks:
   cloud:

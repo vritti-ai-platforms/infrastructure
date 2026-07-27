@@ -7,7 +7,3 @@ all:
       hosts:
         vritti-vm1:
           ansible_host: CHANGE_ME_VM1_RESERVED_IP
-    vm2:
-      hosts:
-        vritti-vm2:
-          ansible_host: CHANGE_ME_VM2_RESERVED_IP

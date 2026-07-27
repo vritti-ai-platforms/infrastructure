@@ -12,9 +12,24 @@ variable "image_name" {
   default     = "ubuntu-24.04-latest"
 }
 
-variable "ssh_public_key" {
-  description = "SSH public key text for the VMs (injected from Infisical as TF_VAR_ssh_public_key)"
+variable "SSH_PUBLIC_KEY" {
+  description = "SSH public key text for the VMs (Infisical: TF_VAR_SSH_PUBLIC_KEY)"
   type        = string
+}
+
+# Provider credentials from Infisical (TF_VAR_*). Wired to the providers in providers.tf.
+variable "EXCLOUD_API_KEY" {
+  type      = string
+  sensitive = true
+}
+variable "EXCLOUD_ORG_ID" {
+  type      = string
+  sensitive = true
+}
+variable "ANSI_CLOUDFLARE_API_TOKEN" {
+  description = "Cloudflare API token — also consumed by ansible (TF_VAR_ANSI_CLOUDFLARE_API_TOKEN)"
+  type        = string
+  sensitive   = true
 }
 
 # --- VM1: control / build / dev ---

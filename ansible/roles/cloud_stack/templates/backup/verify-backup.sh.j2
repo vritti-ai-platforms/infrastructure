@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Managed by Ansible (roles/cloud_stack). Verifies the cloud DB pgBackRest repos are reachable and
+# archiving is healthy. Stanza: {{ cloud_backrest_stanza }}.
+set -euo pipefail
+export PATH=/usr/local/bin:/usr/bin:/bin
+
+CONTAINER="postgres"
+STANZA="{{ cloud_backrest_stanza }}"
+log() { echo "[cloud-backup-verify] $(date -u +%FT%TZ) $*"; }
+
+log "check (archive + repos)..."
+docker exec -u postgres "$CONTAINER" pgbackrest --stanza="$STANZA" check
+log "info:"
+docker exec -u postgres "$CONTAINER" pgbackrest --stanza="$STANZA" info
+log "done"

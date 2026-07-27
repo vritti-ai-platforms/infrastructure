@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Managed by Ansible (roles/cloud_stack). Cloud DB INCREMENTAL pgBackRest backup -> repo1 + repo2.
+# Stanza: {{ cloud_backrest_stanza }}. Runs via `docker exec` into postgres.
+set -euo pipefail
+export PATH=/usr/local/bin:/usr/bin:/bin
+
+CONTAINER="postgres"
+STANZA="{{ cloud_backrest_stanza }}"
+log() { echo "[cloud-backup-incr] $(date -u +%FT%TZ) $*"; }
+
+log "REPO1 (local) incremental backup..."
+docker exec -u postgres "$CONTAINER" pgbackrest --stanza="$STANZA" --repo=1 --type=incr backup
+log "REPO2 (R2) incremental backup..."
+docker exec -u postgres "$CONTAINER" pgbackrest --stanza="$STANZA" --repo=2 --type=incr backup
+log "done"

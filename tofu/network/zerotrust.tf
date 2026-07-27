@@ -7,13 +7,13 @@
 # only guards the web UI).
 # =====================================================================
 
-variable "github_idp_client_id" {
-  description = "GitHub OAuth App client id (Infisical: TF_VAR_github_idp_client_id)"
+variable "GITHUB_IDP_CLIENT_ID" {
+  description = "GitHub OAuth App client id (Infisical: TF_VAR_GITHUB_IDP_CLIENT_ID)"
   type        = string
 }
 
-variable "github_idp_client_secret" {
-  description = "GitHub OAuth App client secret (Infisical: TF_VAR_github_idp_client_secret)"
+variable "GITHUB_IDP_CLIENT_SECRET" {
+  description = "GitHub OAuth App client secret (Infisical: TF_VAR_GITHUB_IDP_CLIENT_SECRET)"
   type        = string
   sensitive   = true
 }
@@ -36,6 +36,7 @@ locals {
   #   admin  -> nginx:8080  (internal-only admin server block, proxies cloud-server)
   #   dblab  -> dblab:2345
   #   git    -> gitea:3000
+  #   clouddb -> postgres:5432 (raw TCP; reach via `cloudflared access tcp`, Access-gated)
   tunnels = {
     vm1 = {
       name = "vritti-vm1"
@@ -43,6 +44,7 @@ locals {
         "dblab"   = { url = "http://dblab:2345", title = "Vritti DbLab" }
         "admin"   = { url = "http://nginx:8080", title = "Vritti Admin" }
         "git.dev" = { url = "http://gitea:3000", title = "Vritti Git (dev)" }
+        "clouddb" = { url = "tcp://postgres:5432", title = "Vritti Cloud DB" }
       }
     }
     # vm2 (prod core) has NO tunnel: it's public (agent nginx on *.apw1), git is SSH-only, and
@@ -64,8 +66,8 @@ resource "cloudflare_zero_trust_access_identity_provider" "github" {
   type       = "github"
 
   config {
-    client_id     = var.github_idp_client_id
-    client_secret = var.github_idp_client_secret
+    client_id     = var.GITHUB_IDP_CLIENT_ID
+    client_secret = var.GITHUB_IDP_CLIENT_SECRET
   }
 }
 

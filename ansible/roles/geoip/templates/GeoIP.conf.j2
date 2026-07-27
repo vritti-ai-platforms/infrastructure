@@ -1,6 +1,6 @@
 # Managed by Ansible (roles/geoip). Credentials from Infisical (MAXMIND_*), injected as env
 # vars because the playbook runs under `infisical run`.
-AccountID {{ lookup('env', 'MAXMIND_ACCOUNT_ID') }}
-LicenseKey {{ lookup('env', 'MAXMIND_LICENSE_KEY') }}
+AccountID {{ lookup('env', 'ANSI_MAXMIND_ACCOUNT_ID') }}
+LicenseKey {{ lookup('env', 'ANSI_MAXMIND_LICENSE_KEY') }}
 EditionIDs {{ geoip_edition }}
 DatabaseDirectory {{ geoip_dir }}

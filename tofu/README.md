@@ -24,11 +24,17 @@ infisical login --domain=https://infisical.vrittiai.com/api
 All credentials live in the Infisical **`infrastructure`** project (`prod` env) and
 are injected as env vars at run time — nothing sensitive is stored on disk or in `.tf`:
 
+Naming: `TF_VAR_*` = tofu-only, `ANSI_*` = ansible-only, `TF_VAR_ANSI_*` = both (tofu reads it
+natively via the `TF_VAR_` prefix; ansible reads the full name). Providers are wired to these
+variables in `providers.tf` — no raw-env auto-detection.
+
 | Env var | Purpose |
 |---|---|
-| `EXCLOUD_API_KEY`, `EXCLOUD_ORG_ID` | Excloud provider |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | R2 state backend |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare provider (DNS) |
+| `TF_VAR_EXCLOUD_API_KEY`, `TF_VAR_EXCLOUD_ORG_ID` | Excloud provider (`var.EXCLOUD_*`) |
+| `TF_VAR_ANSI_CLOUDFLARE_API_TOKEN` | Cloudflare provider (`var.ANSI_CLOUDFLARE_API_TOKEN`) — also used by ansible |
+| `TF_VAR_GITHUB_IDP_CLIENT_ID`, `TF_VAR_GITHUB_IDP_CLIENT_SECRET` | GitHub Access IdP |
+| `TF_VAR_SSH_PUBLIC_KEY` | VM SSH public key |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | R2 state backend — **exact names required** (backends can't read variables), so no prefix |
 
 Each layer has its own `.infisical.json`, so `infisical run` needs no `--projectId`.
 

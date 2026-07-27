@@ -1,0 +1,40 @@
+# Managed by Ansible (roles/cloud_stack). pgBackRest for the cloud control-plane DB.
+# Stanza: {{ cloud_backrest_stanza }}. Secrets (cipher passphrases, R2 keys, PG password) are NOT
+# here — they are injected as PGBACKREST_* env vars in docker-compose.yml (from /opt/vritti/.env).
+
+[global]
+
+# REPO1 — local docker volume (fast restore, ~4 weeks of history).
+repo1-path=/var/lib/pgbackrest
+repo1-retention-full=4
+repo1-retention-diff=14
+
+# REPO2 — Cloudflare R2 (offsite DR). S3 creds + bucket injected via PGBACKREST_REPO2_S3_* env.
+repo2-type=s3
+repo2-path={{ cloud_backrest_repo_path }}
+repo2-s3-region=auto
+repo2-s3-uri-style=path
+repo2-retention-full=2
+repo2-retention-diff=7
+repo2-retention-archive=14
+
+# Performance + compression.
+compress-type=lz4
+compress-level=3
+process-max=2
+start-fast=y
+delta=y
+archive-timeout=300
+
+# Logging.
+log-level-console=info
+log-level-file=detail
+log-path=/var/log/pgbackrest
+
+# Stanza — pg1 is LOCAL (pgbackrest runs inside the postgres container), so no pg1-host.
+# pg1-user/pg1-database is production's single owner role (see cloud-db.env).
+[{{ cloud_backrest_stanza }}]
+pg1-path=/var/lib/postgresql/data/pgdata
+pg1-port=5432
+pg1-user={{ _db_user }}
+pg1-database={{ _db_name }}

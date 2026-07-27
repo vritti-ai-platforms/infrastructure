@@ -2,26 +2,65 @@
 # Image references for the cloud control-plane stack.
 cloud_server_image: "ghcr.io/vritti-ai-platforms/cloud-server"
 cloud_server_tag: "latest-main"
+# cloud-web static SPA — oras OCI artifact (web.tar.gz) built by reusable-build-web.yml.
+cloud_web_image: "ghcr.io/vritti-ai-platforms/cloud-web"
+cloud_web_tag: "latest-main"
+oras_version: "1.2.0"
+# The cloud-server image runs as this non-root user (nestjs:nodejs). Its bind-mounted log dir must
+# be owned by this uid/gid or the app crashes on startup with EACCES writing /app/logs.
+cloud_server_uid: 1001
+cloud_server_gid: 1001
 cloud_postgres_image: "ghcr.io/vritti-ai-platforms/postgres-pgbackrest:18.4"
 cloud_redis_image: "redis:8-alpine"
 cloud_nats_image: "nats:2.11-alpine"
 cloud_nginx_image: "nginx:1.27-alpine"
 cloud_dblab_image: "registry.gitlab.com/postgres-ai/database-lab/dblab-server:3.5.0"
+# DbLab clone image — MUST match the source Postgres major (18). See DbLab caveat in tasks.
+cloud_dblab_pg_image: "postgresai/extended-postgres:18"
 
-# Cloud control-plane database.
-cloud_db_name: "vritti_cloud"
-cloud_db_owner: "vritti_cloud_owner"
-cloud_db_app: "vritti_cloud_app"
-cloud_db_schema: "cloud"
-cloud_db_migration_schema: "drizzle"
+# cloud-server's env is the vritti-cloud Infisical `production` env (imports `shared` + the
+# containerized overrides), exported on the control node -> /opt/vritti/cloud/.env.
+# projectId + machine-identity creds come from the infrastructure project (ANSI_* secrets),
+# injected by the outer `infisical run`. Nothing hard-coded, and no reliance on `infisical login`.
+vritti_cloud_project_id: "{{ lookup('env', 'ANSI_VRITTI_CLOUD_PROJECT_ID') }}"
+vritti_cloud_env: "production"
+vritti_cloud_path: "/cloud-server"
+infisical_domain: "https://infisical.vrittiai.com"
 
-# The agent creates this network for the dev core stack; cloud nginx attaches to it too so it
-# can route *.dev to the dev core-server. Declared external in the cloud compose.
+# Shared external network for the agent's dev-core stack. On vm1 the dev core runs with no nginx
+# of its own (AddOns.Nginx=false), so THIS cloud nginx is its edge — it attaches to this network
+# to route *.dev -> core-server:3002. The agent creates the network too; whoever runs first wins.
 core_network_name: "vritti-core-net"
 
-# Cloud control-plane secrets — from Infisical (via infisical run), NOT a vault.
-cloud_db_password: "{{ lookup('env', 'CLOUD_DB_PASSWORD') }}"
-cloud_redis_password: "{{ lookup('env', 'CLOUD_REDIS_PASSWORD') }}"
-cloud_jwt_secret: "{{ lookup('env', 'CLOUD_JWT_SECRET') }}"
-cloud_hmac_key: "{{ lookup('env', 'CLOUD_HMAC_KEY') }}"
-cloud_cookie_secret: "{{ lookup('env', 'CLOUD_COOKIE_SECRET') }}"
+# DbLab pool mount dir (matches the zfs role) + API token (dblab. is behind Zero-Trust anyway).
+dblab_mount_dir: "/var/lib/dblab/pools"
+dblab_verification_token: "{{ lookup('env', 'ANSI_DBLAB_TOKEN') | default('vritti-dblab-dev', true) }}"
+
+# DbLab physical restore source = the prod core pgBackRest R2 repo (stanza `core`). These are
+# SHARED secrets with vm2's agent (Infisical, ANSI_CORE_BACKREST_*). Empty until vm2 prod core +
+# pgBackRest->R2 exist, which is why DbLab is inert on first deploy.
+core_backrest_stanza: "core"
+core_backrest_r2_endpoint: "{{ lookup('env', 'ANSI_CORE_BACKREST_R2_ENDPOINT') }}"
+core_backrest_r2_bucket: "{{ lookup('env', 'ANSI_CORE_BACKREST_R2_BUCKET') }}"
+core_backrest_r2_access_key: "{{ lookup('env', 'ANSI_CORE_BACKREST_R2_ACCESS_KEY') }}"
+core_backrest_r2_secret_key: "{{ lookup('env', 'ANSI_CORE_BACKREST_R2_SECRET_KEY') }}"
+# repo1 = vm2's LOCAL repo cipher (vm2-only, never read here). repo2 = the R2 repo cipher, SHARED
+# with vm2's agent — this is the one DbLab must use to decrypt the R2 backups it restores from.
+core_backrest_repo1_cipher_pass: "{{ lookup('env', 'ANSI_CORE_BACKREST_REPO1_CIPHER_PASS') }}"
+core_backrest_repo2_cipher_pass: "{{ lookup('env', 'ANSI_CORE_BACKREST_REPO2_CIPHER_PASS') }}"
+core_backrest_repo_path: "{{ lookup('env', 'ANSI_CORE_BACKREST_REPO_PATH') | default('/pgbackrest', true) }}"
+
+# Cloud DB pgBackRest -> R2 (stanza `cloud`, its OWN bucket vritti-cloud-prod-backup — distinct
+# from the core repo above). INERT by default: with no ANSI_CLOUD_BACKREST_R2_BUCKET set,
+# `cloud_backrest_enabled` is false, so postgres runs with NO archive_mode (no WAL pile-up), no
+# sidecar, and no cron. Create the bucket, set the ANSI_CLOUD_BACKREST_* secrets, and re-run to
+# turn archiving + scheduled backups on. repo1 = local (fast restore), repo2 = R2 (offsite DR).
+cloud_backrest_stanza: "cloud"
+cloud_backrest_r2_endpoint: "{{ lookup('env', 'ANSI_CLOUD_BACKREST_R2_ENDPOINT') }}"
+cloud_backrest_r2_bucket: "{{ lookup('env', 'ANSI_CLOUD_BACKREST_R2_BUCKET') }}"
+cloud_backrest_r2_access_key: "{{ lookup('env', 'ANSI_CLOUD_BACKREST_R2_ACCESS_KEY') }}"
+cloud_backrest_r2_secret_key: "{{ lookup('env', 'ANSI_CLOUD_BACKREST_R2_SECRET_KEY') }}"
+cloud_backrest_repo1_cipher_pass: "{{ lookup('env', 'ANSI_CLOUD_BACKREST_REPO1_CIPHER_PASS') }}"
+cloud_backrest_repo2_cipher_pass: "{{ lookup('env', 'ANSI_CLOUD_BACKREST_REPO2_CIPHER_PASS') }}"
+cloud_backrest_repo_path: "{{ lookup('env', 'ANSI_CLOUD_BACKREST_REPO_PATH') | default('/pgbackrest', true) }}"
+cloud_backrest_enabled: "{{ (cloud_backrest_r2_bucket | default('') | length > 0) }}"

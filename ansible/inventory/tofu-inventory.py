@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Dynamic Ansible inventory sourced from the tofu compute layer's outputs, so VM IPs are
-# never hand-copied. Emits groups vm1/vm2 (matching group_vars/vm1.yml, vm2.yml) with
-# ansible_host set from vm1_public_ipv4 / vm2_public_ipv4.
+# never hand-copied. Emits group vm1 (matching group_vars/vm1.yml) with ansible_host set from
+# vm1_public_ipv4. (vm2 + the core deployments are owned by the Go agent, not Ansible.)
 #
 #   TOFU_DIR   override the compute dir (default: ../../tofu/compute relative to this script)
 #   TOFU_BIN   override the binary (default: tofu, falling back to terraform)
@@ -16,7 +16,6 @@ import sys
 
 HOSTS = {
     "vm1": ("vritti-vm1", "vm1_public_ipv4"),
-    "vm2": ("vritti-vm2", "vm2_public_ipv4"),
 }
 
 

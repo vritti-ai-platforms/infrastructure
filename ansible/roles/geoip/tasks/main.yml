@@ -6,8 +6,8 @@
 - name: Require MaxMind creds from Infisical (run the playbook under `infisical run`)
   ansible.builtin.assert:
     that:
-      - lookup('env', 'MAXMIND_ACCOUNT_ID') | length > 0
-      - lookup('env', 'MAXMIND_LICENSE_KEY') | length > 0
+      - lookup('env', 'ANSI_MAXMIND_ACCOUNT_ID') | length > 0
+      - lookup('env', 'ANSI_MAXMIND_LICENSE_KEY') | length > 0
     fail_msg: >-
       MAXMIND_ACCOUNT_ID / MAXMIND_LICENSE_KEY are not in the environment. Run Ansible under
       `infisical run --projectId 8f447810-a5c7-4a83-a4f3-1a775999edd9 --env prod -- ansible-playbook ...`.

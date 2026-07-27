@@ -1,6 +1,7 @@
 ---
-# ZFS pool backing DbLab thin clones. DbLab's physical mode snapshots a ZFS dataset to
-# spin up instant thin clones of the cloud Postgres for dev/testing.
+# ZFS pool backing DbLab thin clones. vm1 is root-only (no separate data disk), so we back the
+# pool with a sparse FILE vdev on the root disk. Fine for a dev DbLab (lower IOPS than a raw disk).
+# The pool is mounted under the DbLab mount dir so DbLab discovers it.
 
 - name: Install ZFS utilities
   ansible.builtin.apt:
@@ -8,27 +9,38 @@
     state: present
     update_cache: true
 
-- name: Check if zpool already exists
-  ansible.builtin.command:
-    cmd: "zpool list -H -o name {{ zfs_pool }}"
+- name: Ensure the zfs kernel module is loaded
+  community.general.modprobe:
+    name: zfs
+    state: present
+
+- name: Ensure the vdev + mount directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ zfs_vdev_file | dirname }}"
+    - "{{ zfs_mount_dir }}"
+
+- name: Check whether the zpool already exists
+  ansible.builtin.command: "zpool list -H -o name {{ zfs_pool }}"
   register: zpool_check
   changed_when: false
   failed_when: false
 
-- name: Create zpool on the data disk
+- name: Create the sparse file vdev
   ansible.builtin.command:
-    cmd: "zpool create -f {{ zfs_pool }} {{ zfs_device }}"
+    cmd: "truncate -s {{ zfs_vdev_size }} {{ zfs_vdev_file }}"
+    creates: "{{ zfs_vdev_file }}"
+  when: zpool_check.rc != 0
+
+- name: Create the zpool on the file vdev (mounted under the DbLab mount dir)
+  ansible.builtin.command: "zpool create -f -m {{ zfs_mount_dir }}/{{ zfs_pool }} {{ zfs_pool }} {{ zfs_vdev_file }}"
   when: zpool_check.rc != 0
   register: zpool_create
   changed_when: zpool_create.rc == 0
 
-- name: Create DbLab clones dataset
-  ansible.builtin.command:
-    cmd: "zfs create -p {{ zfs_dataset }}"
-    creates: "/{{ zfs_dataset }}"
-
-- name: Set dataset properties for clone performance
-  ansible.builtin.command:
-    cmd: "zfs set compression=lz4 atime=off {{ zfs_dataset }}"
-  register: zfs_props
+- name: Tune the pool for clones (compression, no atime)
+  ansible.builtin.command: "zfs set compression=lz4 atime=off {{ zfs_pool }}"
   changed_when: false

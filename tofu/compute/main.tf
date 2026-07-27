@@ -22,7 +22,7 @@ resource "excloud_compute_instance" "vm1" {
   subnet_id     = local.subnet.id
   image_id      = local.image.id
   instance_type = var.vm1_instance_type
-  ssh_pubkey    = var.ssh_public_key
+  ssh_pubkey    = var.SSH_PUBLIC_KEY
 
   security_group_ids = [tonumber(excloud_security_group.vritti.id)]
 
@@ -54,7 +54,7 @@ resource "excloud_compute_instance" "vm2" {
   subnet_id     = local.subnet.id
   image_id      = local.image.id
   instance_type = var.vm2_instance_type
-  ssh_pubkey    = var.ssh_public_key
+  ssh_pubkey    = var.SSH_PUBLIC_KEY
 
   security_group_ids = [tonumber(excloud_security_group.vritti.id)]
 

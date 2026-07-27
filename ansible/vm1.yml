@@ -1,10 +1,9 @@
-# VM1 — cloud control plane + dev core.
-# Ansible owns the host + the cloud compose stack; the agent owns the dev core stack.
-- name: Provision VM1 (cloud control plane + dev core)
+# VM1 — cloud control plane. Ansible owns the host + the cloud compose stack (nginx + cloud-web
+# SPA + cloud-server + postgres/redis/nats + DbLab + TLS + Cloudflare tunnel). Core deployments
+# (dev + prod vritti-core) are owned by the Go agent and are NOT provisioned here.
+- name: Provision VM1 (cloud control plane)
   hosts: vm1
   become: true
-  # Tag the control plane separately from the dev-core agent, so you can bring up the cloud
-  # stack now (`--tags control-plane`) and add the agent once cloud-server's enroll endpoints exist.
   roles:
     - role: base
       tags: [base, control-plane]
@@ -23,8 +22,6 @@
     - role: cloud_stack
       when: enable_cloud_stack | default(false)
       tags: [cloud_stack, control-plane]
-    - role: agent
-      tags: [agent, core]
-    # cloudflared last — the app networks it attaches to exist by now (cloud_stack creates the core net).
+    # cloudflared last — the cloud app network it attaches to exists by now.
     - role: cloudflared
       tags: [cloudflared, control-plane]

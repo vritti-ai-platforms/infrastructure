@@ -1,7 +1,7 @@
 # Managed by Ansible (roles/cloud_stack). Edge routing for vm1.
 #
 # PUBLIC listener (0.0.0.0:80/443) serves ONLY the genuinely public app surfaces:
-#   cloud.  -> cloud-server        *.dev -> dev core-server
+#   cloud.  -> cloud-web SPA (static) + /api -> cloud-server    *.dev -> dev core-server
 # Any other Host (admin./dblab./git.) is HARD-REFUSED with 444. Those never arrive on the
 # public IP — they come only through the cloudflared tunnel, which targets internal services
 # directly (see tofu network/zerotrust.tf). This is what makes Cloudflare Access unbypassable:
@@ -9,26 +9,100 @@
 #
 # ADMIN listener (:8080) is internal-only — never published to the host, reachable solely by
 # cloudflared on the docker network. The public internet cannot route to it.
+#
+# RESILIENCE: upstreams are proxied via a `set` variable + Docker's embedded DNS resolver
+# (127.0.0.1:11), NOT a literal proxy_pass host. A literal host is resolved once at startup and
+# nginx REFUSES TO START (`[emerg] host not found in upstream`) if the container is absent — which
+# is fatal here because core-server (dev core) is agent-managed and usually not running, and
+# cloud-server may still be booting. The variable form defers resolution to request time, so nginx
+# always starts and returns 502 for a missing upstream instead of crash-looping.
 
-map $host $public_backend {
-    default                   "";                        # unknown Host -> refused (444) below
-    {{ cloud_domain }}        "cloud-server:3000";
-    ~^.*\.dev\.vrittiai\.com$ "core-server:3002";
+# WebSocket/SSE: cloud-server's /auth/status is a Server-Sent Events stream. Without buffering off
+# + a long read timeout, nginx buffers the never-ending stream and hits proxy_read_timeout (502/
+# "upstream timed out"). Connection is `upgrade` for real websockets, empty otherwise.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
 }
 
-# HTTP — ACME challenge + redirect the known public hosts, refuse everything else.
+# HTTP — ACME challenge + redirect to https. Unknown hosts fall through to the 444 default on 443.
 server {
     listen 80 default_server;
     server_name _;
     location /.well-known/acme-challenge/ { root /var/www/letsencrypt; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+# cloud.vrittiai.com — serve the cloud-web SPA (static bundle in www/cloud) and proxy the API.
+# The SPA calls a same-origin `/api` (quantum-ui.config baseURL). cloud-server has NO global
+# prefix, so the `rewrite` strips `/api/` -> `/` before proxying (a variable proxy_pass can't
+# carry the trailing-slash URI strip, so the rewrite does it).
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name {{ cloud_domain }};
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    ssl_certificate     /etc/nginx/ssl/vrittiai.com.crt;
+    ssl_certificate_key /etc/nginx/ssl/vrittiai.com.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 25m;
+
+    root /usr/share/nginx/html/cloud;
+    index index.html;
+
+    location /api/ {
+        set $cloud_api cloud-server:3000;
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass http://$cloud_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        # SSE (/auth/status) + websockets: stream through, don't buffer, keep the stream open.
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+
+    # SPA client-side routing: serve the asset if it exists, else fall back to index.html.
     location / {
-        if ($public_backend = "") { return 444; }
-        return 301 https://$host$request_uri;
+        try_files $uri $uri/ /index.html;
     }
 }
 
-# HTTPS — the public app. Wildcard cert covers every subdomain, so a spoofed admin. SNI still
-# completes the TLS handshake, then falls into the 444 refusal below.
+# *.dev.vrittiai.com — dev core (agent-managed). Proxied placeholder until the dev core stack is
+# stood up; nginx stays up and returns 502 while core-server is absent (variable upstream).
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ~^.*\.dev\.vrittiai\.com$;
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    ssl_certificate     /etc/nginx/ssl/vrittiai.com.crt;
+    ssl_certificate_key /etc/nginx/ssl/vrittiai.com.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 25m;
+
+    location / {
+        set $dev_core core-server:3002;
+        proxy_pass http://$dev_core;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+}
+
+# Default 443 — refuse every other Host (spoofed admin./dblab./bare IP). The wildcard cert still
+# completes the TLS handshake, then this block drops the connection.
 server {
     listen 443 ssl default_server;
     http2 on;
@@ -37,36 +111,39 @@ server {
     ssl_certificate     /etc/nginx/ssl/vrittiai.com.crt;
     ssl_certificate_key /etc/nginx/ssl/vrittiai.com.key;
     ssl_protocols TLSv1.2 TLSv1.3;
-    client_max_body_size 25m;
 
-    if ($public_backend = "") { return 444; }
-
-    location / {
-        set $upstream $public_backend;
-        proxy_pass http://$upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
+    return 444;
 }
 
-# ADMIN — internal only. cloudflared forwards admin.vrittiai.com here (nginx:8080); this port
-# is not published to the host, so nothing on the public internet can reach it.
+# ADMIN — internal only. cloudflared forwards admin.vrittiai.com here (nginx:8080); this port is
+# not published to the host, so nothing on the public internet can reach it. Serves the same
+# cloud-web SPA (its /admin routes) + proxies /api, so the admin surface sits behind Access.
 server {
     listen 8080;
     server_name {{ admin_domain }};
+    resolver 127.0.0.11 valid=10s ipv6=off;
     client_max_body_size 25m;
 
-    location / {
-        proxy_pass http://cloud-server:3000;
+    root /usr/share/nginx/html/cloud;
+    index index.html;
+
+    location /api/ {
+        set $cloud_api cloud-server:3000;
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass http://$cloud_api;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        # SSE (/auth/status) + websockets: stream through, don't buffer, keep the stream open.
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
     }
 }
