@@ -11,8 +11,8 @@ services:
     image: ghcr.io/${GITHUB_ORG:-vritti-ai-platforms}/infisical-secret-manager:${INFISICAL_VERSION:-latest-main}
     container_name: infisical
     restart: unless-stopped
-    ports:
-      - "80:8080"
+    # No host port — the app binds IPv4-only, so it sits behind infisical-proxy (which listens on
+    # IPv6 too). Reached internally at infisical:8080 over the compose network.
     depends_on:
       infisical-redis:
         condition: service_started
@@ -56,6 +56,29 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - infisical-network
+
+  # IPv6 ingress front. The Infisical app binds IPv4-only, so Cloudflare's IPv6 origin-pull can't
+  # reach it directly (docker-proxy [::]:80 → app not listening on v6 → 521). This nginx listens on
+  # [::]:80 + 0.0.0.0:80 and proxies to the app over the internal network — bridging IPv6 → IPv4.
+  infisical-proxy:
+    image: nginx:1.27-alpine
+    container_name: infisical-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      infisical:
+        condition: service_healthy
+    configs:
+      - source: infisical_proxy_conf
+        target: /etc/nginx/conf.d/default.conf
     logging:
       driver: "json-file"
       options:
@@ -182,6 +205,29 @@ services:
         max-file: "3"
     networks:
       - infisical-network
+
+# Inline nginx config for infisical-proxy (no separate file to ship). `$$` escapes compose
+# interpolation so nginx receives literal `$host` etc.
+configs:
+  infisical_proxy_conf:
+    content: |
+      server {
+        listen 80;
+        listen [::]:80;
+        server_name _;
+        client_max_body_size 50m;
+        location / {
+          proxy_pass http://infisical:8080;
+          proxy_http_version 1.1;
+          proxy_set_header Host $$host;
+          proxy_set_header X-Real-IP $$remote_addr;
+          proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $$scheme;
+          proxy_set_header Upgrade $$http_upgrade;
+          proxy_set_header Connection "upgrade";
+          proxy_read_timeout 300s;
+        }
+      }
 
 volumes:
   infisical-redis-data:
