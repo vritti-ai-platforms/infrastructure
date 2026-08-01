@@ -20,6 +20,9 @@ services:
         condition: service_healthy
     environment:
       - NODE_ENV=production
+      # Bind all interfaces. The image otherwise binds loopback-only, so docker-proxy (and thus the
+      # Cloudflare origin pull) gets a connection reset → the site 521s. Must be set explicitly.
+      - HOST=0.0.0.0
       # Encryption & Auth
       - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}
       - AUTH_SECRET=${INFISICAL_AUTH_SECRET}
