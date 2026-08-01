@@ -194,3 +194,13 @@ networks:
   infisical-network:
     name: infisical-network
     driver: bridge
+    # IPv6 so containers can egress on an IPv6-only host. The bridge is otherwise IPv4-only, meaning
+    # containers reach the internet ONLY via the host's IPv4 — so removing the host IPv4 severs all
+    # container egress (this is what broke pgBackRest→R2 and filled the disk). Requires the Docker
+    # daemon to have ipv6 + ip6tables enabled (set in infisical-deploy.yml).
+    enable_ipv6: true
+    ipam:
+      config:
+        # Disjoint from the daemon's default-bridge fixed-cidr-v6 (fd00:dead:beef::/48) to avoid an
+        # IPAM pool-overlap error. ip6tables masquerades this range out via the host's IPv6.
+        - subnet: fd00:cafe:cafe:1::/64

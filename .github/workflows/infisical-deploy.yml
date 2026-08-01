@@ -83,6 +83,21 @@ jobs:
             fi
             echo "[OK] Docker: $(docker --version 2>/dev/null || echo missing)"
 
+            # Enable IPv6 for containers (ip6tables NAT). The compose bridge is IPv4-only by default,
+            # so on an IPv6-only host containers have NO internet egress — which is what killed
+            # pgBackRest→R2 and filled the disk. This gives the bridge an IPv6 subnet that masquerades
+            # out via the host's IPv6. Idempotent: only rewrites + restarts docker when the config changes.
+            echo "[STEP 1c] Ensuring Docker IPv6 (ip6tables NAT)..."
+            sudo mkdir -p /etc/docker
+            DESIRED_DAEMON='{"ipv6": true, "fixed-cidr-v6": "fd00:dead:beef::/48", "ip6tables": true}'
+            if [ "$(sudo cat /etc/docker/daemon.json 2>/dev/null)" != "$DESIRED_DAEMON" ]; then
+              echo "$DESIRED_DAEMON" | sudo tee /etc/docker/daemon.json >/dev/null
+              sudo systemctl restart docker
+              echo "[OK] Docker IPv6 configured; daemon restarted"
+            else
+              echo "[OK] Docker IPv6 already configured"
+            fi
+
             # Login to GHCR
             echo "[STEP 2/9] Logging into GHCR..."
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
