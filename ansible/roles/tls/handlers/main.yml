@@ -1,0 +1,8 @@
+---
+# Fires when the certbot task reports a (re)issue — copies the fresh cert into the nginx ssl dir
+# and reloads nginx. On initial issuance nginx isn't up yet; the script swallows that (|| true) and
+# cloud_stack starts nginx afterwards with the certs already in place.
+- name: Deploy TLS certs to nginx
+  ansible.builtin.command:
+    cmd: /etc/letsencrypt/renewal-hooks/deploy/vritti-nginx.sh
+  changed_when: true

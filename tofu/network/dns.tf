@@ -34,17 +34,32 @@ locals {
     # can't be hit directly. A SPECIFIC record beats the "*" wildcard, so this wins for cloud.
     cloud = { vm = "vm1", proxied = true }
 
-    vm1 = { vm = "vm1", proxied = false }
-    vm2 = { vm = "vm2", proxied = false }
+    # api. is the PUBLIC machine API (agent enroll/desired-state/status). Proxied like cloud. — CF
+    # WAF/DDoS/rate-limiting at the edge, firewall stays CF-locked — but NOT Access-gated: the agent
+    # authenticates with its own Ed25519 + enroll token, so no service token lives on any VM.
+    api = { vm = "vm1", proxied = true }
   }
 }
 
-# NOTE — Zone TLS mode (SSL/TLS → Overview) must be set to **Full (Strict)** for the proxied cloud.
-# record, so Cloudflare reaches nginx over HTTPS and validates the Let's Encrypt cert. This is NOT
-# managed here because the tofu API token lacks the "Zone Settings: Edit" scope (error 9109). Set it
-# once in the dashboard, or grant that scope to TF_VAR_ANSI_CLOUDFLARE_API_TOKEN and re-add a
-# `cloudflare_zone_settings_override` resource. With mode=Flexible the origin's http->https redirect
-# would loop, so Full (Strict) is required.
+# Zone SSL mode — managed in code so it can't drift. Full (Strict) is REQUIRED for the proxied
+# cloud./api. records: Cloudflare reaches nginx over HTTPS and validates its Let's Encrypt cert (with
+# Flexible the origin's http->https redirect would loop). Only `ssl` is managed here — every other
+# zone setting (always_use_https, min_tls_version, etc.) stays at its current live value (computed,
+# not touched), so re-adding this resource preserves the zone exactly instead of resetting it.
+resource "cloudflare_zone_settings_override" "main" {
+  zone_id = local.cf_zone_id
+
+  settings {
+    ssl = "strict"
+  }
+
+  # `initial_settings` is a computed "before" snapshot the provider re-derives every plan, causing a
+  # perpetual phantom in-place diff even though no live setting changes. Ignore it so plans stay clean
+  # and real drift stands out.
+  lifecycle {
+    ignore_changes = [initial_settings]
+  }
+}
 
 resource "cloudflare_record" "app" {
   for_each = local.dns_records

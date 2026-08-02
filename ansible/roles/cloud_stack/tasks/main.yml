@@ -101,6 +101,10 @@
     - { src: nginx.conf.j2, dest: nginx/nginx.conf }
     - { src: cloud.conf.j2, dest: nginx/conf.d/cloud.conf }
     - { src: dblab-server.yml.j2, dest: dblab/server.yml }
+  # Reload nginx when a rendered conf changes — `docker compose up -d` (below) won't restart nginx
+  # just because a bind-mounted file changed, so without this a cloud.conf edit never takes effect.
+  # (For a quick nginx-only change without a full stack pass, use the nginx.yml playbook.)
+  notify: Reload nginx
 
 - name: Template pgBackRest config + backup scripts (cloud DB -> R2)
   when: cloud_backrest_enabled | bool
@@ -189,6 +193,7 @@
 - name: Bring up the full cloud stack (nginx, cloud-server, dblab)
   community.docker.docker_compose_v2:
     project_src: /opt/vritti
+    pull: always
     state: present
 
 - name: Initialize + schedule cloud DB backups (pgBackRest -> R2)

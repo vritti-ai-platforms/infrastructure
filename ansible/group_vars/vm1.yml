@@ -1,4 +1,27 @@
 # VM1 = cloud control plane. Core deployments (dev + prod vritti-core) are agent-owned, not here.
+
+# Connection (host IP comes from the tofu dynamic inventory, not here).
+ansible_python_interpreter: /usr/bin/python3
+ansible_user: ubuntu
+ansible_ssh_private_key_file: "~/.ssh/id_rsa"
+
+# GHCR pull auth for private images (cloud-server + the cloud-web bundle). From Infisical (via infisical run).
+ghcr_username: "{{ lookup('env', 'ANSI_GHCR_USERNAME') | default('shashank-vritti', true) }}"
+ghcr_token: "{{ lookup('env', 'ANSI_GHCR_TOKEN') }}"
+
+# Host baseline (base role).
+swap_size_gb: 4
+extra_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - ufw
+  - unattended-upgrades
+
+# Docker.
+docker_apt_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
+
 cloud_domain: "cloud.vrittiai.com"
 admin_domain: "admin.vrittiai.com"
 dblab_domain: "dblab.vrittiai.com"
@@ -29,5 +52,9 @@ cloudflared_networks:
 tls_domains:
   - "cloud.vrittiai.com"
   - "*.dev.vrittiai.com"
+  # api. is the public machine API (agent enroll/desired-state/status). It's Cloudflare-proxied with
+  # Full/Strict, so the origin nginx MUST present a cert covering api. — else CF returns 526 and the
+  # agent can't enroll. nginx already has the api. server block; this adds it to the shared cert SAN.
+  - "api.vrittiai.com"
 tls_email: "shashank@vrittiai.com"
 cloudflare_api_token: "{{ lookup('env', 'TF_VAR_ANSI_CLOUDFLARE_API_TOKEN') }}"

@@ -1,0 +1,8 @@
+# Static inventory for the prod-core VM. vm2's public IP is a RESERVED IP (managed in
+# tofu/network — permanent, survives VM rebuilds), so it is safe to pin here. This keeps the
+# vm2 play fully decoupled from the tofu/R2 backend creds that the vm1 dynamic inventory needs.
+# If the reserved IP ever changes, update it here (see: tofu output vm2_public_ipv4).
+vm2:
+  hosts:
+    vritti-vm2:
+      ansible_host: 210.79.128.205

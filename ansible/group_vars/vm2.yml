@@ -1,0 +1,25 @@
+# VM2 host bootstrap vars (base + docker). Agent-specific vars (deployment_id/enroll_token) live in
+# ../../agent/group_vars/vm2.yml, since the agent runs under a different Infisical env (vritti-core apw1).
+
+# Connection (host IP is the reserved vm2 IP, set in vm2/inventory.yml — not tofu inventory).
+ansible_python_interpreter: /usr/bin/python3
+ansible_user: ubuntu
+ansible_ssh_private_key_file: "~/.ssh/id_rsa"
+
+# GHCR login (docker role). From the infrastructure Infisical env (prod) — this login persists on the
+# host so the separate agent play can pull the private application-agent image without its own creds.
+ghcr_username: "{{ lookup('env', 'ANSI_GHCR_USERNAME') | default('shashank-vritti', true) }}"
+ghcr_token: "{{ lookup('env', 'ANSI_GHCR_TOKEN') }}"
+
+# Host baseline (base role).
+swap_size_gb: 4
+extra_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - ufw
+  - unattended-upgrades
+
+# Docker.
+docker_apt_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"

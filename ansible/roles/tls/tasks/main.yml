@@ -28,7 +28,11 @@
     group: ubuntu
     mode: "0755"
 
-- name: Request wildcard certificate (DNS-01)
+# certbot expands the cert when tls_domains grows (e.g. adding api.). No `creates:` guard — that would
+# skip the run once the cert exists and silently freeze the SAN list. --keep-until-expiring makes it a
+# no-op when the domain set is unchanged and the cert isn't near expiry, so this stays idempotent; the
+# `changed_when` detects the keep case so the redeploy handler only fires on an actual (re)issue.
+- name: Request/expand wildcard certificate (DNS-01)
   ansible.builtin.command:
     cmd: >-
       certbot certonly --non-interactive --agree-tos
@@ -36,10 +40,12 @@
       --dns-cloudflare-propagation-seconds 30
       -m {{ tls_email }}
       {% for d in tls_domains %}-d '{{ d }}' {% endfor %}
-      --cert-name vrittiai
-    creates: /etc/letsencrypt/live/vrittiai/fullchain.pem
+      --cert-name vrittiai --expand --keep-until-expiring
+  register: certbot_result
+  changed_when: "'not yet due for renewal' not in certbot_result.stdout"
+  notify: Deploy TLS certs to nginx
 
-- name: Deploy hook — copy renewed certs into the nginx ssl dir
+- name: Deploy hook — copy renewed certs into the nginx ssl dir (also runs on certbot auto-renewal)
   ansible.builtin.copy:
     dest: /etc/letsencrypt/renewal-hooks/deploy/vritti-nginx.sh
     mode: "0755"
@@ -49,8 +55,3 @@
       cp /etc/letsencrypt/live/vrittiai/fullchain.pem /opt/vritti/ssl/vrittiai.com.crt
       cp /etc/letsencrypt/live/vrittiai/privkey.pem   /opt/vritti/ssl/vrittiai.com.key
       docker exec nginx nginx -s reload 2>/dev/null || true
-
-- name: Run deploy hook once now (initial issuance)
-  ansible.builtin.command:
-    cmd: /etc/letsencrypt/renewal-hooks/deploy/vritti-nginx.sh
-    creates: /opt/vritti/ssl/vrittiai.com.crt

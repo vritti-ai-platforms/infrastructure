@@ -56,7 +56,8 @@ resource "excloud_compute_instance" "vm2" {
   instance_type = var.vm2_instance_type
   ssh_pubkey    = var.SSH_PUBLIC_KEY
 
-  security_group_ids = [tonumber(excloud_security_group.vritti.id)]
+  # vritti = admin SSH; vm2_public = world-open 80/443 + git-SSH (direct-served apw1, agent nginx + LE).
+  security_group_ids = [tonumber(excloud_security_group.vritti.id), tonumber(excloud_security_group.vm2_public.id)]
 
   # Reserved IP comes from the network layer's state (see VM1 note).
   allocate_public_ipv4       = true

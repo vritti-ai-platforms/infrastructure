@@ -1,0 +1,38 @@
+# Update vm1's nginx config (roles/cloud_stack templates → /opt/vritti/nginx/) and hot-reload nginx,
+# WITHOUT a full cloud-stack redeploy. The reload is what actually applies a cloud.conf change —
+# `docker compose up -d` won't restart nginx just because a bind-mounted file changed.
+#
+# Run from this dir (.infisical.json pins infrastructure / prod, so the tofu inventory resolves vm1):
+#   infisical run -- ansible-playbook nginx.yml
+#   infisical run -- ansible-playbook nginx.yml --check --diff   # preview the change, apply nothing
+- name: Update vm1 nginx config + reload
+  hosts: vm1
+  become: true
+
+  tasks:
+    - name: Render nginx config from cloud_stack templates
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/roles/cloud_stack/templates/{{ item.src }}"
+        dest: "/opt/vritti/{{ item.dest }}"
+        owner: ubuntu
+        group: ubuntu
+        mode: "0644"
+      loop:
+        - { src: nginx.conf.j2, dest: nginx/nginx.conf }
+        - { src: cloud.conf.j2, dest: nginx/conf.d/cloud.conf }
+      notify: Reload nginx
+
+  handlers:
+    # Validate before reloading so a broken template fails loudly instead of dropping a bad config
+    # onto the running nginx.
+    - name: Validate nginx config
+      ansible.builtin.command:
+        cmd: docker exec nginx nginx -t
+      changed_when: false
+      listen: Reload nginx
+
+    - name: Reload nginx
+      ansible.builtin.command:
+        cmd: docker exec nginx nginx -s reload
+      changed_when: true
+      listen: Reload nginx

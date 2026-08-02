@@ -59,3 +59,39 @@ resource "excloud_security_group_rule" "https_cf" {
   port_range        = "443"
   cidr              = each.value
 }
+
+# vm2 (apw1 prod core) is served DIRECT (grey-cloud DNS → vm2), not through Cloudflare: the agent's
+# own nginx terminates TLS with Let's Encrypt certs it obtains via HTTP-01. So vm2 needs :80/:443
+# open to the WORLD (HTTP-01 + public HTTPS) plus git-SSH for the Gitea add-on — unlike vm1, whose
+# web ports stay Cloudflare-locked. This is a SEPARATE group; vm2 carries both (vritti = admin SSH).
+resource "excloud_security_group" "vm2_public" {
+  name        = "vritti-vm2-public"
+  description = "vm2 apw1: HTTP/HTTPS + git-SSH open to the world (direct-served, agent nginx + LE)"
+}
+
+resource "excloud_security_group_rule" "vm2_http_public" {
+  security_group_id = tonumber(excloud_security_group.vm2_public.id)
+  description       = "HTTP public (Let's Encrypt HTTP-01 + http->https redirect)"
+  is_ingress        = true
+  protocol          = "TCPv4"
+  port_range        = "80"
+  cidr              = "0.0.0.0/0"
+}
+
+resource "excloud_security_group_rule" "vm2_https_public" {
+  security_group_id = tonumber(excloud_security_group.vm2_public.id)
+  description       = "HTTPS public (apw1 core + per-tenant)"
+  is_ingress        = true
+  protocol          = "TCPv4"
+  port_range        = "443"
+  cidr              = "0.0.0.0/0"
+}
+
+resource "excloud_security_group_rule" "vm2_git_ssh_public" {
+  security_group_id = tonumber(excloud_security_group.vm2_public.id)
+  description       = "Git SSH (Gitea add-on) — clones over ssh://git@…:2222"
+  is_ingress        = true
+  protocol          = "TCPv4"
+  port_range        = "2222"
+  cidr              = "0.0.0.0/0"
+}

@@ -73,6 +73,43 @@ server {
     }
 }
 
+# api.vrittiai.com — PUBLIC API host (proxied, NOT Access-gated). The WHOLE host proxies to
+# cloud-server: the crypto-authed agent endpoints (/agent/*, one-time enroll token + Ed25519 request
+# signatures verified by AgentSignatureGuard) plus any other public API route (root, health, etc.).
+# cloud-server has no global prefix, so requests proxy straight through (no rewrite). The admin
+# surface stays private — /admin-api is refused here; it's reachable only via the Access-gated
+# admin. host through the tunnel.
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name api.vrittiai.com;
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    ssl_certificate     /etc/nginx/ssl/vrittiai.com.crt;
+    ssl_certificate_key /etc/nginx/ssl/vrittiai.com.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 25m;
+
+    # Keep the admin surface off the public host.
+    location /admin-api/ { return 404; }
+
+    # Everything else → cloud-server.
+    location / {
+        set $cloud_api cloud-server:3000;
+        proxy_pass http://$cloud_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        # SSE (/auth/status) + websockets: stream through, don't buffer.
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+}
+
 # *.dev.vrittiai.com — dev core (agent-managed). Proxied placeholder until the dev core stack is
 # stood up; nginx stays up and returns 502 while core-server is absent (variable upstream).
 server {

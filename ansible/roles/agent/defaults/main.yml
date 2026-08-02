@@ -1,0 +1,21 @@
+---
+# The vritti-application-agent image (built by the agent repo's build.yml → GHCR).
+agent_image: "ghcr.io/vritti-ai-platforms/application-agent"
+agent_image_tag: "latest-main"
+
+# Where the agent keeps its identity/state, the core stack bind-mount root, and its env file.
+agent_data_dir: "/var/lib/vritti-agent"
+agent_stack_root: "/opt/vritti-core"
+agent_config_dir: "/etc/vritti-agent"
+
+# Clean reinstall: when true, wipe every trace of the agent (unit, container, and the cached
+# enrollment/keys/machine-secrets in agent_data_dir) BEFORE reinstalling, so the agent boots with
+# no cached credential and re-enrolls with the current VM2_ENROLL_TOKEN. Opt-in only — enroll tokens
+# are single-use, so a routine converge must NOT wipe. Run: `-e agent_reset=true` (with a fresh token).
+agent_reset: false
+
+# cloud-server the agent enrolls with and pulls signed desired-state from. The agent API is served
+# on the PUBLIC, proxied api. host (NOT Access-gated) — the agent's own Ed25519 + enroll-token auth
+# is the boundary, so no Cloudflare service token is needed on the VM. This is the ONLY deployment
+# config ansible provides; the secret-store connection comes from cloud in the desired-state.
+cloud_url: "https://api.vrittiai.com"

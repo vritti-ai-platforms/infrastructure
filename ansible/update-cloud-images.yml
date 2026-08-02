@@ -1,0 +1,99 @@
+---
+# Update ONLY the cloud-stack images on vm1, in place:
+#   * cloud-server — refresh its env from Infisical, pull the latest image, recreate just that service
+#   * cloud-web    — re-pull the SPA OCI bundle (oras) and re-extract to www/cloud (nginx serves it)
+#
+# The cloud-server env (/opt/vritti/cloud/.env) is re-exported from the vritti-cloud `production` env
+# and rewritten BEFORE the recreate, so the new container picks up any changed/added vars (e.g. a new
+# ENCRYPTION_KEY). Nothing else is touched: no compose/nginx re-templating, no DB migrations, no
+# backups, and the infra services (postgres/redis/nats/dblab) are left running untouched. For a full
+# converge — or when a new cloud-server image ships schema changes that need migrating — run the full
+# `vm1.yml` (or apply migrations separately). Assumes vm1 was already provisioned by `vm1.yml` once
+# (oras + compose + dirs already exist).
+#
+# Run from the ansible dir with Infisical creds injected on the control node:
+#   infisical run -- ansible-playbook update-cloud-images.yml
+- name: Update cloud-stack images (vm1)
+  hosts: vm1
+  become: true
+  # Reuse the cloud_stack role's image refs so tags never drift from the deploy role.
+  vars_files:
+    - roles/cloud_stack/defaults/main.yml
+
+  tasks:
+    - name: Log in to GHCR (cloud-server + cloud-web images are private)
+      community.docker.docker_login:
+        registry_url: ghcr.io
+        username: "{{ ghcr_username }}"
+        password: "{{ ghcr_token }}"
+      no_log: true
+
+    - name: Export the latest cloud-server env from vritti-cloud Infisical (control node; unquote for env_file)
+      # Machine identity + projectId come from the infrastructure project's ANSI_* secrets, injected by
+      # the outer `infisical run`. sed strips the single quotes so the file is a plain docker env_file.
+      ansible.builtin.shell: |
+        set -euo pipefail
+        TOKEN=$(infisical login --method=universal-auth \
+          --client-id="$ANSI_INFISICAL_CLIENT_ID" --client-secret="$ANSI_INFISICAL_CLIENT_SECRET" \
+          --domain={{ infisical_domain }} --plain --silent)
+        infisical export --token="$TOKEN" --domain={{ infisical_domain }} \
+          --projectId={{ vritti_cloud_project_id }} --env={{ vritti_cloud_env }} \
+          --path={{ vritti_cloud_path }} --format=dotenv \
+          | sed -E "s/^([A-Za-z_][A-Za-z0-9_]*)='(.*)'$/\1=\2/"
+      args:
+        executable: /bin/bash
+      delegate_to: localhost
+      become: false
+      run_once: true
+      register: cloud_env_export
+      changed_when: false
+      no_log: true
+
+    - name: Sanity-check the export resolved (import + overrides + required keys)
+      ansible.builtin.assert:
+        that:
+          - cloud_env_export.stdout_lines | length > 30
+          - "'PRIMARY_DB_DATABASE_DIRECT_URL=' in cloud_env_export.stdout"
+          - "'JWT_SECRET=' in cloud_env_export.stdout"
+          - "'ENCRYPTION_KEY=' in cloud_env_export.stdout"
+        fail_msg: "production export incomplete — check the shared import + control-node Infisical auth."
+
+    - name: Write the refreshed cloud-server env file (/opt/vritti/cloud/.env)
+      ansible.builtin.copy:
+        content: "{{ cloud_env_export.stdout }}\n"
+        dest: /opt/vritti/cloud/.env
+        owner: ubuntu
+        group: ubuntu
+        mode: "0600"
+      no_log: true
+
+    - name: Pull the latest cloud-server image and recreate only that service
+      community.docker.docker_compose_v2:
+        project_src: /opt/vritti
+        services: [cloud-server]
+        pull: always
+        recreate: always
+        state: present
+      register: cloud_server_update
+
+    - name: Re-pull + extract the cloud-web SPA bundle to www/cloud
+      # cloud-web is a static bundle, not a container: pull the OCI artifact and replace www/cloud.
+      # nginx serves the files off disk, so the new SPA is live on the next request — no restart needed.
+      ansible.builtin.shell: |
+        set -euo pipefail
+        echo "$GHCR_TOKEN" | oras login ghcr.io -u "$GHCR_USER" --password-stdin
+        rm -rf /tmp/cloudweb && mkdir -p /tmp/cloudweb
+        oras pull {{ cloud_web_image }}:{{ cloud_web_tag }} -o /tmp/cloudweb
+        rm -rf /opt/vritti/www/cloud && mkdir -p /opt/vritti/www/cloud
+        tar -xzf /tmp/cloudweb/web.tar.gz -C /opt/vritti/www/cloud
+      args:
+        executable: /bin/bash
+      environment:
+        GHCR_TOKEN: "{{ ghcr_token }}"
+        GHCR_USER: "{{ ghcr_username }}"
+      changed_when: true
+      no_log: true
+
+    - name: Report cloud-server container state
+      ansible.builtin.debug:
+        msg: "cloud-server updated; cloud-web bundle refreshed at /opt/vritti/www/cloud."

@@ -1,0 +1,98 @@
+---
+# Installs the vritti-application-agent as a container run under systemd. The agent enrolls
+# with cloud (using the one-time token, first boot only) and then reconciles the core stack
+# on this host from signed desired-state. Ansible does NOT deploy the core compose — the
+# agent materializes those containers itself.
+
+# Clean reinstall (opt-in: -e agent_reset=true). Removes every trace of the agent so the install
+# tasks below rebuild it from scratch and it re-enrolls with a fresh token. The agent only consumes
+# the enroll token when there is NO cached enrollment.json, so wiping agent_data_dir is what forces
+# re-enrollment — a plain converge can never do this. Runs before install; the tasks below recreate
+# the dirs, re-template the env (fresh token), reinstall the unit, and start → fresh enroll.
+- name: Reset — remove every trace of the agent before reinstall
+  when: agent_reset | bool
+  block:
+    - name: Stop and disable the agent unit (ignore if absent)
+      ansible.builtin.systemd:
+        name: vritti-agent
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Force-remove the agent container (ignore if absent)
+      community.docker.docker_container:
+        name: vritti-agent
+        state: absent
+        force_kill: true
+
+    - name: Remove the systemd unit file
+      ansible.builtin.file:
+        path: /etc/systemd/system/vritti-agent.service
+        state: absent
+
+    - name: Reload systemd after unit removal
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Wipe agent identity/state (enrollment cache, keys, machine secrets)
+      ansible.builtin.file:
+        path: "{{ agent_data_dir }}"
+        state: absent
+
+- name: Create agent data dir (keys, machine secrets, enrollment cache)
+  ansible.builtin.file:
+    path: "{{ agent_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Create core stack root (bind-mount source for pgdata, gitea, logs, backup)
+  ansible.builtin.file:
+    path: "{{ agent_stack_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Create agent config dir (env file)
+  ansible.builtin.file:
+    path: "{{ agent_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Pull the agent image
+  community.docker.docker_image:
+    name: "{{ agent_image }}:{{ agent_image_tag }}"
+    source: pull
+    force_source: true
+
+- name: Template agent environment file
+  ansible.builtin.template:
+    src: agent.env.j2
+    dest: "{{ agent_config_dir }}/agent.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart vritti-agent
+
+- name: Install systemd unit for the agent
+  ansible.builtin.template:
+    src: vritti-agent.service.j2
+    dest: /etc/systemd/system/vritti-agent.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart vritti-agent
+
+- name: Enable and start the agent
+  ansible.builtin.systemd:
+    name: vritti-agent
+    enabled: true
+    state: started
+    daemon_reload: true

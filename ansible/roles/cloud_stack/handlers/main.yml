@@ -1,0 +1,15 @@
+---
+# Validate then hot-reload nginx after a config change. `nginx -t` first so a broken template fails
+# loudly instead of reloading a bad config. Runs after the stack is up, so the container exists.
+- name: Reload nginx
+  ansible.builtin.command:
+    cmd: docker exec nginx nginx -t
+  register: nginx_conftest
+  changed_when: false
+  listen: Reload nginx
+
+- name: Apply nginx reload
+  ansible.builtin.command:
+    cmd: docker exec nginx nginx -s reload
+  changed_when: true
+  listen: Reload nginx
