@@ -15,6 +15,7 @@ ExecStartPre=-/usr/bin/docker rm -f vritti-agent
 ExecStartPre=-/usr/bin/docker network create {{ agent_network }}
 ExecStart=/usr/bin/docker run --rm --name vritti-agent \
   --network {{ agent_network }} \
+  --dns 1.1.1.1 --dns 8.8.8.8 \
   --env-file {{ agent_config_dir }}/agent.env \
   -e DOCKER_CONFIG=/root/.docker \
   -v /var/run/docker.sock:/var/run/docker.sock \

@@ -95,3 +95,24 @@ resource "excloud_security_group_rule" "vm2_git_ssh_public" {
   port_range        = "2222"
   cidr              = "0.0.0.0/0"
 }
+
+# The bundled acme-dns is authoritative for acme.<base> and must be reachable by Let's Encrypt's
+# resolvers (from anywhere) to answer the wildcard DNS-01 challenge TXT. DNS is UDP with a TCP
+# fallback, so both. Without this the cloud firewall drops all :53 and the wildcard never issues.
+resource "excloud_security_group_rule" "vm2_dns_udp_public" {
+  security_group_id = tonumber(excloud_security_group.vm2_public.id)
+  description       = "acme-dns DNS-01 (UDP) — Let's Encrypt resolves the wildcard challenge here"
+  is_ingress        = true
+  protocol          = "UDPv4"
+  port_range        = "53"
+  cidr              = "0.0.0.0/0"
+}
+
+resource "excloud_security_group_rule" "vm2_dns_tcp_public" {
+  security_group_id = tonumber(excloud_security_group.vm2_public.id)
+  description       = "acme-dns DNS-01 (TCP fallback)"
+  is_ingress        = true
+  protocol          = "TCPv4"
+  port_range        = "53"
+  cidr              = "0.0.0.0/0"
+}
