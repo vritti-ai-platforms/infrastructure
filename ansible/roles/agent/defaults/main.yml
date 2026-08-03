@@ -8,6 +8,11 @@ agent_data_dir: "/var/lib/vritti-agent"
 agent_stack_root: "/opt/vritti-core"
 agent_config_dir: "/etc/vritti-agent"
 
+# The stack Docker network (must match deploy.Network in the agent). The agent container JOINS it so
+# it can reach the bundled acme-dns HTTP API (acme-dns:8080, not host-published) when issuing the
+# wildcard cert. Pre-created by the unit before the agent starts; the agent reuses it for the stack.
+agent_network: "vritti-core-net"
+
 # Clean reinstall: when true, wipe every trace of the agent (unit, container, and the cached
 # enrollment/keys/machine-secrets in agent_data_dir) BEFORE reinstalling, so the agent boots with
 # no cached credential and re-enrolls with the current VM2_ENROLL_TOKEN. Opt-in only — enroll tokens

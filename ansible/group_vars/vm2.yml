@@ -13,6 +13,9 @@ ghcr_token: "{{ lookup('env', 'ANSI_GHCR_TOKEN') }}"
 
 # Host baseline (base role).
 swap_size_gb: 4
+# vm2 runs the agent's bundled acme-dns — open :53 (tcp+udp) so Let's Encrypt can resolve the
+# wildcard DNS-01 challenge. Not set on vm1 (no DNS server there).
+allow_acme_dns: true
 extra_packages:
   - ca-certificates
   - curl

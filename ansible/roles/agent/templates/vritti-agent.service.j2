@@ -10,7 +10,11 @@ Requires=docker.service
 # host Docker config (read-only) so the agent can pull PRIVATE images with the credentials
 # `docker login` (roles/docker) already wrote — no registry auth baked into the agent.
 ExecStartPre=-/usr/bin/docker rm -f vritti-agent
+# Pre-create the stack network so the agent can JOIN it and reach acme-dns:8080 (not host-published)
+# for wildcard issuance. Idempotent; the agent then reuses this network for the stack containers.
+ExecStartPre=-/usr/bin/docker network create {{ agent_network }}
 ExecStart=/usr/bin/docker run --rm --name vritti-agent \
+  --network {{ agent_network }} \
   --env-file {{ agent_config_dir }}/agent.env \
   -e DOCKER_CONFIG=/root/.docker \
   -v /var/run/docker.sock:/var/run/docker.sock \
