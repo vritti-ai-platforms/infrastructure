@@ -68,7 +68,20 @@ server {
     }
 
     # SPA client-side routing: serve the asset if it exists, else fall back to index.html.
+    # Hashed build assets are content-addressed (the filename changes when the content changes), so
+    # cache them for a year and mark immutable — repeat loads are instant, and a new deploy never
+    # clashes because it ships new filenames. A missing asset returns 404 — NOT the index.html
+    # fallback — so a stale shell requesting an old chunk fails cleanly instead of receiving HTML.
+    location ~* \.(?:js|css|woff2?|ttf|eot|otf|svg|png|jpg|jpeg|gif|ico|webp|map)$ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # The SPA shell ties the hashed chunks together and rotates every deploy — always revalidate it
+    # (no-cache = may cache but must check freshness each load; a cheap 304 when unchanged), so it is
+    # never served stale and can never point at chunks that no longer exist.
     location / {
+        add_header Cache-Control "no-cache" always;
         try_files $uri $uri/ /index.html;
     }
 }
@@ -180,7 +193,20 @@ server {
         proxy_read_timeout 3600s;
     }
 
+    # Hashed build assets are content-addressed (the filename changes when the content changes), so
+    # cache them for a year and mark immutable — repeat loads are instant, and a new deploy never
+    # clashes because it ships new filenames. A missing asset returns 404 — NOT the index.html
+    # fallback — so a stale shell requesting an old chunk fails cleanly instead of receiving HTML.
+    location ~* \.(?:js|css|woff2?|ttf|eot|otf|svg|png|jpg|jpeg|gif|ico|webp|map)$ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # The SPA shell ties the hashed chunks together and rotates every deploy — always revalidate it
+    # (no-cache = may cache but must check freshness each load; a cheap 304 when unchanged), so it is
+    # never served stale and can never point at chunks that no longer exist.
     location / {
+        add_header Cache-Control "no-cache" always;
         try_files $uri $uri/ /index.html;
     }
 }
