@@ -18,7 +18,7 @@
   become: true
   # Reuse the cloud_stack role's image refs so tags never drift from the deploy role.
   vars_files:
-    - roles/cloud_stack/defaults/main.yml
+    - ../roles/cloud_stack/defaults/main.yml
 
   tasks:
     - name: Log in to GHCR (cloud-server + cloud-web images are private)

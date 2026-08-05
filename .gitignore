@@ -33,3 +33,6 @@ Thumbs.db
 
 # Backup secrets (R2 credentials, cipher passphrases)
 backup/.env.backup
+
+# Local admin-IP override (per-machine SSH allow-list, written by `just ip-update`)
+tofu/*/admin.auto.tfvars

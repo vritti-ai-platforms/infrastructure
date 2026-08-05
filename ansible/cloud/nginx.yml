@@ -12,7 +12,7 @@
   tasks:
     - name: Render nginx config from cloud_stack templates
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/roles/cloud_stack/templates/{{ item.src }}"
+        src: "{{ playbook_dir }}/../roles/cloud_stack/templates/{{ item.src }}"
         dest: "/opt/vritti/{{ item.dest }}"
         owner: ubuntu
         group: ubuntu
