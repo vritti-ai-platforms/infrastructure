@@ -172,6 +172,34 @@ resource "cloudflare_zero_trust_access_policy" "admin_service_token" {
   }
 }
 
+# --- Access for the docs site (docs.vrittiai.dev) — Mintlify-hosted, proxied through Cloudflare, gated
+# by GitHub-org SSO. NOT a tunnel service (external origin); it's a standalone Access app on the proxied
+# hostname, so Access enforces at the Cloudflare edge before the request ever reaches Mintlify. ---
+resource "cloudflare_zero_trust_access_application" "docs" {
+  account_id                = local.cf_account_id
+  name                      = "Vritti Docs"
+  domain                    = "docs.vrittiai.dev"
+  type                      = "self_hosted"
+  session_duration          = "24h"
+  allowed_idps              = [cloudflare_zero_trust_access_identity_provider.github.id]
+  auto_redirect_to_identity = true # skip the picker -> straight to GitHub login
+}
+
+resource "cloudflare_zero_trust_access_policy" "docs" {
+  application_id = cloudflare_zero_trust_access_application.docs.id
+  account_id     = local.cf_account_id
+  name           = "allow-github-org"
+  precedence     = 1
+  decision       = "allow"
+
+  include {
+    github {
+      name                 = var.github_org
+      identity_provider_id = cloudflare_zero_trust_access_identity_provider.github.id
+    }
+  }
+}
+
 # --- Preserve already-applied resources across the vm1->per-VM refactor (no recreate) ---
 moved {
   from = random_id.vm1_tunnel_secret
