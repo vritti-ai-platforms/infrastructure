@@ -1,6 +1,6 @@
-# Reusable agent-managed deployment VM (apw1, apw2, …): one compute instance + its own admin-SSH and
-# world-open (web/dns/git) security groups. Parameterized so each deployment is a ~10-line thin root.
-# No backend/provider here — those live in the calling root (which owns the per-VM state).
+# Reusable agent-managed deployment VM (apw1, apw2, …): one compute instance attached to the SHARED
+# vritti-core security group (passed in as sg_id from the network layer). Parameterized so each
+# deployment is a ~10-line thin root. No backend/provider here — those live in the calling root.
 
 variable "name" {
   description = "Short deployment name, e.g. apw1 / apw2. Drives instance + SG names (vritti-<name>…)."
@@ -17,10 +17,9 @@ variable "ssh_pubkey" {
   type        = string
 }
 
-variable "ssh_allowed_cidr" {
-  description = "CIDR allowed to SSH in (admin public IP)."
-  type        = string
-  default     = "49.238.35.31/32"
+variable "sg_id" {
+  description = "Shared core security group id (vritti-core, from the network layer)."
+  type        = number
 }
 
 variable "instance_type" {

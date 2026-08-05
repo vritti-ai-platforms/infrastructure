@@ -1,7 +1,12 @@
 # The compute layer consumes these via terraform_remote_state.
 
+output "core_sg_id" {
+  description = "Shared security group id for all agent-hosted core VMs (apw1, apw2, …)"
+  value       = tonumber(excloud_security_group.core.id)
+}
+
 output "cloud_ip_id" {
-  description = "VM1 reserved IP reservation id"
+  description = "cloud VM reserved IP reservation id"
   value       = tonumber(excloud_public_ipv4.cloud.id)
 }
 

@@ -5,5 +5,6 @@ module "vm" {
   source            = "../modules/excloud-core-vm"
   name              = "apw1"
   ip_reservation_id = data.terraform_remote_state.network.outputs.apw1_ip_id
+  sg_id             = data.terraform_remote_state.network.outputs.core_sg_id
   ssh_pubkey        = var.SSH_PUBLIC_KEY
 }

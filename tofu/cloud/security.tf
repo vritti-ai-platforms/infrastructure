@@ -25,7 +25,7 @@ variable "cloudflare_ipv4_cidrs" {
 }
 
 resource "excloud_security_group" "vritti" {
-  name        = "vritti"
+  name        = "vritti-cloud"
   description = "SSH from admin IP; HTTP/HTTPS public; everything else denied"
 }
 

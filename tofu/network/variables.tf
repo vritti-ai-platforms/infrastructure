@@ -16,6 +16,12 @@ variable "dns_dev_zone_name" {
   default     = "vrittiai.dev"
 }
 
+variable "ssh_allowed_cidr" {
+  description = "CIDR allowed to SSH into the core VMs (admin public IP) — used by the shared vritti-core SG"
+  type        = string
+  default     = "49.238.35.31/32"
+}
+
 # Provider credentials from Infisical (TF_VAR_*). Wired to the providers in providers.tf.
 variable "EXCLOUD_API_KEY" {
   type      = string

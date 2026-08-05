@@ -6,7 +6,7 @@ locals {
 }
 
 # One agent-managed core deployment VM (apw1, apw2, …): prod core-server/web + commerce + Gitea add-on
-# + tenant static sites + prod Postgres, plus the Vritti agent. Its own admin + public SGs; the
+# + tenant static sites + prod Postgres, plus the Vritti agent. Attaches the shared vritti-core SG; the
 # reserved public IP is passed in from the network layer, so destroying the VM never touches the IP.
 resource "excloud_compute_instance" "this" {
   name          = "vritti-${var.name}"
@@ -16,12 +16,9 @@ resource "excloud_compute_instance" "this" {
   instance_type = var.instance_type
   ssh_pubkey    = var.ssh_pubkey
 
-  # admin = SSH from admin IP; public = world-open 80/443 + git-SSH + acme-dns :53 (direct-served,
-  # agent's own nginx + Let's Encrypt). Not behind Cloudflare, so no CF-locked web rules.
-  security_group_ids = [
-    tonumber(excloud_security_group.admin.id),
-    tonumber(excloud_security_group.public.id),
-  ]
+  # Shared `vritti-core` SG (from the network layer) — SSH from admin IP + world-open 80/443 + git-SSH
+  # + acme-dns :53 (direct-served, agent's own nginx + Let's Encrypt). Every core VM uses the same one.
+  security_group_ids = [var.sg_id]
 
   allocate_public_ipv4       = true
   public_ipv4_reservation_id = var.ip_reservation_id
