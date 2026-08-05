@@ -1,9 +1,0 @@
-# Deploys + enrolls the vritti-application-agent on the prod-core host (vm2). Runs SEPARATELY from
-# ../vm2.yml because it uses a DIFFERENT Infisical env: vritti-core / apw1, path /agent (where
-# VM2_DEPLOYMENT_ID + VM2_ENROLL_TOKEN live). Prereq: ../vm2.yml has already run (docker present +
-# GHCR login persisted on the host), so the agent role can pull the private image and start the unit.
-- name: Deploy vritti-application-agent (prod core)
-  hosts: vm2
-  become: true
-  roles:
-    - role: agent

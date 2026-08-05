@@ -93,7 +93,7 @@
 
 # acme-dns serves the wildcard DNS-01 challenge on :53 — Let's Encrypt's resolvers reach it here.
 # DNS is primarily UDP with a TCP fallback, so both protocols must be open. Only the agent host runs
-# acme-dns, so this is gated (vm1/cloud has no DNS server — don't open 53 there).
+# acme-dns, so this is gated (the cloud VM has no DNS server — don't open 53 there).
 - name: Allow acme-dns (DNS-01 for the agent wildcard cert)
   community.general.ufw:
     rule: allow

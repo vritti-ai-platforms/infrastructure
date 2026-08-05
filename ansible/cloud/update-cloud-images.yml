@@ -1,5 +1,5 @@
 ---
-# Update ONLY the cloud-stack images on vm1, in place:
+# Update ONLY the cloud-stack images on the cloud VM, in place:
 #   * cloud-server — refresh its env from Infisical, pull the latest image, recreate just that service
 #   * cloud-web    — re-pull the SPA OCI bundle (oras) and re-extract to www/cloud (nginx serves it)
 #
@@ -8,13 +8,13 @@
 # ENCRYPTION_KEY). Nothing else is touched: no compose/nginx re-templating, no DB migrations, no
 # backups, and the infra services (postgres/redis/nats/dblab) are left running untouched. For a full
 # converge — or when a new cloud-server image ships schema changes that need migrating — run the full
-# `vm1.yml` (or apply migrations separately). Assumes vm1 was already provisioned by `vm1.yml` once
-# (oras + compose + dirs already exist).
+# `site.yml` (or apply migrations separately). Assumes the cloud VM was already provisioned by
+# `site.yml` once (oras + compose + dirs already exist).
 #
 # Run from the ansible dir with Infisical creds injected on the control node:
 #   infisical run -- ansible-playbook update-cloud-images.yml
-- name: Update cloud-stack images (vm1)
-  hosts: vm1
+- name: Update cloud-stack images (cloud)
+  hosts: cloud
   become: true
   # Reuse the cloud_stack role's image refs so tags never drift from the deploy role.
   vars_files:

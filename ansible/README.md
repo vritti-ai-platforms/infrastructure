@@ -1,140 +1,105 @@
 # Vritti Ansible
 
-Provisions **vm1 — the cloud control plane** (host + cloud compose stack) and **vm2 — the prod-core
-host** (base + docker + GHCR login). Three plays, run separately, in two Infisical contexts:
+Two independent sub-projects, each self-contained (own `ansible.cfg`, `.infisical.json`, static
+inventory) and pinned to its own Infisical project. Shared `roles/` at the top.
 
-| Play | Dir | Infisical | Does |
-|---|---|---|---|
-| `vm1.yml` | `./` | infrastructure / prod | cloud control plane (host + compose stack) |
-| `vm2.yml` | `./` | infrastructure / prod | prod-core **host** bootstrap: base + docker + GHCR login |
-| `agent/agent.yml` | `agent/` | **vritti-core / apw1** (`/agent`) | deploy + enroll the `vritti-application-agent` |
+| Sub-project | Dir | Infisical project | Target | Does |
+|---|---|---|---|---|
+| **cloud** | `cloud/` | **infrastructure** / `prod` | the ONE fixed cloud control-plane VM | host + cloud compose stack (nginx, cloud-web SPA, cloud-server, pg/redis/nats, DbLab, TLS, cloudflared) |
+| **core** | `core/` | **vritti-core** / `<env>` (`/agent`) | ANY agent-hosted core VM (apw1, apw2, cloud dev core…) | bootstrap (base + docker + GHCR login) **and** deploy/enroll the `vritti-application-agent`, in one pass |
 
-`vm2.yml` does **not** deploy the agent — it only preps the host and logs into GHCR (that login
-persists, so the agent pull needs no creds). The agent is a **separate play** because it reads its
-deploy/enroll secrets from a different project (vritti-core `apw1`). The **core stack itself** (pg,
-redis, nats, core-server, commerce, nginx) is then materialized by the agent from signed
-desired-state. There is no shared `group_vars/all.yml`.
-
-The one coupling: on vm1 the agent runs the dev core with **no nginx of its own**
-(`AddOns.Nginx=false`), so this repo's cloud nginx is its **shared edge** — it attaches to the
-external `vritti-core-net` and proxies `*.dev → core-server:3002`. (On vm2 the agent bundles its
-own nginx, so vm2 needs no edge from us.)
-
-| vm1 role | owner |
-|---|---|
-| base, docker, zfs, tls, geoip, cloud_stack, cloudflared | **Ansible** (this repo) |
-| cloud compose stack (`/opt/vritti`): nginx + cloud-web SPA + cloud-server + pg/redis/nats + DbLab | **Ansible** |
-| dev vritti-core (`*.dev`, fronted by our nginx) | agent |
-| ZFS + DbLab (thin clones from the prod-core R2 backup) | **Ansible** deploys; agent's core consumes |
+The **core stack itself** (pg, redis, nats, core-server, commerce, nginx) is materialized by the
+**agent** from cloud's signed desired-state — not by Ansible. `core/site.yml` only preps the host and
+starts the agent.
 
 ## Layout
 
 ```
-# vm1 + vm2 (host plays) — run from this dir, infra Infisical / prod, tofu dynamic inventory
-ansible.cfg              inventory/tofu-inventory.py   # vm1 + vm2 IPs from `tofu output`
-                         inventory/hosts.yml.example   # optional static fallback
-.infisical.json          # infrastructure project / prod
-group_vars/vm1.yml       # vm1 vars (ssh user, ghcr, base pkgs, docker arch, cloud-stack toggles)
-group_vars/vm2.yml       # vm2 HOST vars (ssh user, ghcr, base pkgs, docker arch)
-vm1.yml                  # cloud control plane
-vm2.yml                  # prod-core host bootstrap (roles: base, docker)
-roles/  base  docker  zfs  tls  geoip  cloud_stack  cloudflared  agent   # shared by all plays
+roles/   base docker zfs tls geoip cloud_stack cloudflared agent      # shared by both sub-projects
+requirements.yml
 
-# agent — run from agent/, vritti-core Infisical / apw1 (path /agent)
-agent/ansible.cfg        # roles_path = ../roles ; inventory = inventory.yml (static)
-      inventory.yml      # vm2 RESERVED IP (no tofu/R2 creds needed)
-      .infisical.json    # vritti-core project / apw1
-      group_vars/vm2.yml # deployment_id / enroll_token + ssh connection
-      agent.yml          # the play (roles: agent)
+cloud/                       # FIXED cloud VM · infrastructure/prod
+  .infisical.json  ansible.cfg
+  inventory.yml              # one fixed host; IP from the CLOUD_TARGET_IP secret (no hardcode)
+  group_vars/cloud.yml
+  site.yml                   # base+docker+zfs+tls+geoip+cloud_stack+cloudflared
+  nginx.yml                  # re-render cloud nginx + hot reload (no full redeploy)
+  update-cloud-images.yml    # refresh cloud-server image + cloud-web bundle in place
+
+core/                        # REUSABLE core VM · vritti-core/<env> (/agent)
+  .infisical.json  ansible.cfg
+  inventory.yml              # ONE placeholder host; all per-VM data comes from --env's /agent secrets
+  group_vars/core.yml
+  site.yml                   # base+docker(GHCR login)+agent
 ```
 
-## Inventory
+There is **no tofu dynamic inventory** and no `group_vars/all.yml` — both sides are static, and every
+per-host value comes from Infisical, so Ansible needs no tofu/R2 creds.
 
-The vm1/vm2 hosts come from the **tofu compute outputs** — no IP is hand-copied.
-`inventory/tofu-inventory.py` runs `tofu output -json` in `tofu/compute` and maps `vm1_public_ipv4`
-/ `vm2_public_ipv4` onto the `vm1` / `vm2` groups. Because the tofu providers read creds via
-`infisical run`, invoke Ansible the same way:
+## cloud — the fixed control-plane VM
+
+`cloud/.infisical.json` pins **infrastructure / prod**. The single host's IP comes from the
+`CLOUD_TARGET_IP` secret, so nothing is hardcoded. Run from `cloud/`:
 
 ```bash
-infisical run -- ansible-inventory --list          # sanity-check the resolved IPs
-infisical run -- ansible-playbook vm1.yml
-infisical run -- ansible-playbook vm2.yml
+ansible-galaxy collection install -r ../requirements.yml    # once
+cd cloud
+infisical run -- ansible-playbook site.yml                  # full provision / converge
+infisical run -- ansible-playbook nginx.yml                 # just re-render + reload nginx
+infisical run -- ansible-playbook update-cloud-images.yml   # bump cloud-server image + cloud-web bundle
 ```
 
-Overrides: `TOFU_DIR` (compute dir), `TOFU_BIN` (tofu/terraform). For a disconnected run, copy
-`inventory/hosts.yml.example` → `hosts.yml`, fill the IP, and point `ansible.cfg` at it.
+`cloud_stack` does **not** read cloud-server's app secrets from `infrastructure` — it exports them from
+the **vritti-cloud** project's `production` env (via a machine identity) at deploy time. This project is
+deploy machinery only.
 
-> The **agent play** (`agent/`) does NOT use this inventory — it has its own static `inventory.yml`
-> (vm2's reserved IP) because it runs under the vritti-core env, which carries no tofu/R2 creds.
+## core — any agent-hosted VM, selected by `--env`
+
+`core/.infisical.json` pins **vritti-core**. **Everything per-VM lives in that env's `/agent` folder**
+(so pass `--path=/agent`), which means the inventory and files never change per VM — you select the VM
+purely by `--env`:
+
+```bash
+cd core
+infisical run --env=apw1 --path=/agent -- ansible-playbook site.yml   # prod core (apw1, edge:managed)
+infisical run --env=dev  --path=/agent -- ansible-playbook site.yml   # cloud dev core (edge:external)
+```
+
+**Per-env `/agent` secrets:**
+
+| Secret | Purpose |
+|---|---|
+| `TARGET_IP` | the VM's reserved public IP → `ansible_host` |
+| `GHCR_USERNAME`, `GHCR_TOKEN` | GHCR login (docker role) so the agent image can be pulled |
+| `DEPLOYMENT_ID`, `ENROLL_TOKEN` | agent enrollment (enroll token is single-use) |
+| `ALLOW_ACME_DNS` | `true` only where the deployment manages its own edge (opens `:53` for acme-dns); omit for `edge:external` VMs like the cloud dev core |
+
+**Adding a new core VM (e.g. apw2):** create its Infisical env with the six secrets above and run
+`infisical run --env=apw2 --path=/agent -- ansible-playbook site.yml`. No file edits — that's the whole
+point of the shared play + placeholder inventory.
+
+### The cloud VM runs a core agent too (the dev core)
+
+The cloud VM is provisioned by `cloud/` **and** hosts one `core` deployment — the dev core on
+`*.vrittiai.dev`. That deployment is **`edge: external`**: the agent runs only `core-server:3002` on the
+shared `vritti-core-net`, and the cloud stack's nginx is its edge (serves `*.vrittiai.dev` with the
+`*.vrittiai.dev` LE cert). So `env=dev` has **no `ALLOW_ACME_DNS`** — the cloud VM opens no `:53`.
 
 ## Secrets — Infisical only (no ansible-vault)
 
-Every secret comes from **Infisical** (`infrastructure` project, `prod` env), injected as env vars
-by `infisical run`; the playbook reads them with `lookup('env', 'NAME')`. There is no vault file.
-Naming: `ANSI_*` = ansible-only, `TF_VAR_ANSI_*` = shared with tofu.
-
-| Env var | Used by | In Infisical? |
-|---|---|---|
-| `TF_VAR_ANSI_CLOUDFLARE_API_TOKEN` | tls (DNS-01) — also tofu | ✅ |
-| `ANSI_MAXMIND_ACCOUNT_ID`, `ANSI_MAXMIND_LICENSE_KEY` | geoip | ✅ |
-| `ANSI_GHCR_TOKEN` | docker + cloud-web bundle pull | ✅ |
-| `ANSI_SSH_PRIVATE_KEY` | SSH to vm1 (CI) | ✅ |
-| `ANSI_CORE_BACKREST_*` | DbLab (restore source; shared with the prod-core backup agent) | ✅ (inert until backups exist) |
-| `ANSI_CLOUD_BACKREST_*` | cloud DB pgBackRest → R2 | ✅ |
-
-**Note:** `cloud_stack` does *not* read cloud-server's app secrets from here — it exports them from
-the **vritti-cloud** Infisical project's `production` env (via a machine identity) at deploy time.
-This project is deploy machinery only. It also pulls the **cloud-web** SPA bundle from GHCR (oras)
-and serves it via nginx; the API is proxied at `/api`.
-
-## Run
-
-`.infisical.json` in this dir pins the project (`infrastructure`) + env (`prod`), so `infisical run`
-needs no flags. Always wrap in `infisical run` so both the inventory (`tofu output`) and every
-`lookup('env', …)` resolve.
-
-```bash
-ansible-galaxy collection install -r requirements.yml
-
-infisical run -- ansible-inventory --graph                       # sanity-check the resolved host
-infisical run -- ansible-playbook vm1.yml --tags control-plane   # cloud control plane
-infisical run -- ansible-playbook vm1.yml                        # full play (same thing; no core here)
-```
-
-### vm2 host bootstrap — run from this dir (infra Infisical)
-
-Same context as vm1. Preps the prod-core host and logs into GHCR (the login persists on the host for
-the agent play):
-
-```bash
-infisical run -- ansible-playbook vm2.yml
-```
-
-### agent deploy + enroll — run from `agent/` (vritti-core Infisical)
-
-`agent/.infisical.json` pins the **vritti-core** project / **`apw1`**; the deploy/enroll secrets live
-at its **`/agent`** path (so pass `--path=/agent`). Inventory is vm2's static reserved IP — no
-tofu/R2 creds. **Prereq:** `vm2.yml` has already run (docker + GHCR login present). The enroll token
-is **single-use** (consumed on first enrollment).
-
-```bash
-cd agent
-infisical run --path=/agent -- ansible-playbook agent.yml
-```
-
-`apw1-local` mirrors `apw1` for local-agent testing.
+Every secret comes from Infisical, injected as env vars by `infisical run`; plays read them with
+`lookup('env', 'NAME')`. `cloud/` reads `ANSI_*` / `TF_VAR_ANSI_*` from **infrastructure/prod**; `core/`
+reads the unprefixed `/agent` secrets above from **vritti-core**.
 
 ## Notes
 
-- **DbLab** (vm1) runs as part of the cloud stack (needs the ZFS pool from the `zfs` role). It
-  physically restores the prod core DB from the R2 pgBackRest repo and serves thin clones; it's
-  inert until those backups exist. Keep `dblab.` behind Zero-Trust.
-- **Cloud DB backups** — postgres archives WAL + runs scheduled pgBackRest backups to R2 once
-  `ANSI_CLOUD_BACKREST_R2_BUCKET` is set (otherwise it stays a plain, un-archived DB).
-- **Customer/core deployments never route secrets through Ansible/Infisical** — the agent generates
-  machine secrets on the VM and decrypts sealed human secrets locally. On vm2 Ansible provides only
-  the host + the agent's `deployment_id`/`enroll_token`; the agent's own secret-store connection
-  arrives in the signed desired-state, not from here.
-- **Reserved IPs only** — vm1 + vm2 host plays resolve via the tofu dynamic inventory; the agent
-  play uses its static `agent/inventory.yml` (vm2's reserved IP). None touch unmanaged VMs.
+- **DbLab** (cloud VM) restores the prod core DB from the R2 pgBackRest repo and serves thin clones;
+  inert until backups exist. Keep `dblab.` behind Zero-Trust.
+- **Cloud DB backups** — postgres archives WAL + runs pgBackRest → R2 once `ANSI_CLOUD_BACKREST_R2_BUCKET`
+  is set.
+- **Customer/core deployments never route secrets through Ansible** — the agent generates machine secrets
+  on the VM and decrypts sealed human secrets locally. `core/` provides only the host + the agent's
+  `deployment_id`/`enroll_token`; the secret-store connection arrives in the signed desired-state.
+- **Reserved IPs only** — every host IP is a reserved public IP supplied via a secret (`CLOUD_TARGET_IP`
+  / per-env `TARGET_IP`). Nothing touches unmanaged VMs.
 ```

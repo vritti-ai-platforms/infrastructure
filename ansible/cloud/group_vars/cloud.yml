@@ -1,6 +1,8 @@
-# VM1 = cloud control plane. Core deployments (dev + prod vritti-core) are agent-owned, not here.
+# cloud = cloud control plane. Core deployments (dev + prod vritti-core) are agent-owned, not here.
 
-# Connection (host IP comes from the tofu dynamic inventory, not here).
+# Connection — host IP from the CLOUD_TARGET_IP secret (infrastructure/prod; the cloud VM's reserved
+# public IP, tofu output cloud_public_ipv4), so the inventory carries no hardcoded IP.
+ansible_host: "{{ lookup('env', 'CLOUD_TARGET_IP') }}"
 ansible_python_interpreter: /usr/bin/python3
 ansible_user: ubuntu
 ansible_ssh_private_key_file: "~/.ssh/id_rsa"
@@ -26,13 +28,13 @@ cloud_domain: "cloud.vrittiai.com"
 admin_domain: "admin.vrittiai.com"
 dblab_domain: "dblab.vrittiai.com"
 
-# Feature toggles for the vm1 play.
+# Feature toggles for the cloud play.
 enable_zfs: true
 enable_dblab: true
 enable_cloud_stack: true
 enable_tls: true
 
-# ZFS pool backing DbLab thin clones. vm1 is root-only, so the pool is a sparse FILE vdev on the
+# ZFS pool backing DbLab thin clones. the cloud VM is root-only, so the pool is a sparse FILE vdev on the
 # root disk (grow zfs_vdev_size as needed). The pool mounts under zfs_mount_dir for DbLab.
 zfs_pool: "dblab"
 zfs_vdev_file: "/opt/vritti/dblab/pool.img"
@@ -47,11 +49,13 @@ cloudflared_networks:
 
 # TLS via Cloudflare DNS-01. cloud. is proxied (orange cloud, Full-Strict) and the origin is reached
 # ONLY by Cloudflare, so the cert only needs the hostnames CF connects to over HTTPS: cloud. (live)
-# + *.dev (the agent-managed dev core, when it ships). The tunnel surfaces (admin/dblab/git/clouddb)
-# hit nginx over plain HTTP, so they need no origin cert — hence no more broad `*.vrittiai.com`.
+# + *.vrittiai.dev (the agent-managed dev core — first-level wildcard on its own zone, proxied
+# Full-Strict). The tunnel surfaces (admin/dblab/git/clouddb) hit nginx over plain HTTP, so they need
+# no origin cert. The DNS-01 token holds DNS:Edit on BOTH vrittiai.com and vrittiai.dev, so the single
+# `vrittiai` SAN cert spans both zones. (No apex vrittiai.dev — tenants are subdomains.)
 tls_domains:
   - "cloud.vrittiai.com"
-  - "*.dev.vrittiai.com"
+  - "*.vrittiai.dev"
   # api. is the public machine API (agent enroll/desired-state/status). It's Cloudflare-proxied with
   # Full/Strict, so the origin nginx MUST present a cert covering api. — else CF returns 526 and the
   # agent can't enroll. nginx already has the api. server block; this adds it to the shared cert SAN.

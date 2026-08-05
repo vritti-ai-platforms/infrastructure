@@ -1,23 +1,23 @@
 # The compute layer consumes these via terraform_remote_state.
 
-output "vm1_ip_id" {
+output "cloud_ip_id" {
   description = "VM1 reserved IP reservation id"
-  value       = tonumber(excloud_public_ipv4.vm1.id)
+  value       = tonumber(excloud_public_ipv4.cloud.id)
 }
 
-output "vm2_ip_id" {
+output "apw1_ip_id" {
   description = "VM2 reserved IP reservation id"
-  value       = tonumber(excloud_public_ipv4.vm2.id)
+  value       = tonumber(excloud_public_ipv4.apw1.id)
 }
 
-output "vm1_ip" {
+output "cloud_ip" {
   description = "VM1 reserved IP address"
-  value       = excloud_public_ipv4.vm1.ip
+  value       = excloud_public_ipv4.cloud.ip
 }
 
-output "vm2_ip" {
+output "apw1_ip" {
   description = "VM2 reserved IP address"
-  value       = excloud_public_ipv4.vm2.ip
+  value       = excloud_public_ipv4.apw1.ip
 }
 
 # Only vm1 runs a tunnel (admin/dblab/dev-git). vm2 (prod core) has none — it's public + SSH.

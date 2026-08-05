@@ -10,6 +10,12 @@ variable "dns_zone_name" {
   default     = "vrittiai.com"
 }
 
+variable "dns_dev_zone_name" {
+  description = "Cloudflare zone for the dev namespace (first-level wildcard, proxiable on Free)"
+  type        = string
+  default     = "vrittiai.dev"
+}
+
 # Provider credentials from Infisical (TF_VAR_*). Wired to the providers in providers.tf.
 variable "EXCLOUD_API_KEY" {
   type      = string

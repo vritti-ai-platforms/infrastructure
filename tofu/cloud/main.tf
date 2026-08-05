@@ -16,12 +16,12 @@ locals {
 # VM1 — control / build / dev
 # (cloud-server/web, dev core, commerce, Gitea+runner, DBLab, clouddb+dev-core PG)
 # =========================================================
-resource "excloud_compute_instance" "vm1" {
-  name          = "vritti-vm1"
+resource "excloud_compute_instance" "cloud" {
+  name          = "vritti-cloud"
   zone_id       = local.subnet.zone_id
   subnet_id     = local.subnet.id
   image_id      = local.image.id
-  instance_type = var.vm1_instance_type
+  instance_type = var.cloud_instance_type
   ssh_pubkey    = var.SSH_PUBLIC_KEY
 
   security_group_ids = [tonumber(excloud_security_group.vritti.id)]
@@ -29,11 +29,11 @@ resource "excloud_compute_instance" "vm1" {
   # Reserved IP comes from the network layer's state — this VM never manages it,
   # so destroying the VM leaves the IP intact.
   allocate_public_ipv4       = true
-  public_ipv4_reservation_id = data.terraform_remote_state.network.outputs.vm1_ip_id
+  public_ipv4_reservation_id = data.terraform_remote_state.network.outputs.cloud_ip_id
 
   root_volume = {
     name                     = "vritti-vm1-root"
-    size_gib                 = var.vm1_root_gib
+    size_gib                 = var.cloud_root_gib
     baseline_iops            = var.root_baseline_iops
     baseline_throughput_mbps = var.root_baseline_throughput_mbps
   }
@@ -44,33 +44,5 @@ resource "excloud_compute_instance" "vm1" {
 # (continuous WAL archiving); on a VM rebuild, Ansible restores from R2. This avoids the
 # ~Rs376/mo-per-volume IOPS+throughput floor Excloud charges on every separate volume.
 
-# =========================================================
-# VM2 — production serving
-# (prod core-server/web, commerce, prod Gitea+runner, client static sites, proddb)
-# =========================================================
-resource "excloud_compute_instance" "vm2" {
-  name          = "vritti-vm2"
-  zone_id       = local.subnet.zone_id
-  subnet_id     = local.subnet.id
-  image_id      = local.image.id
-  instance_type = var.vm2_instance_type
-  ssh_pubkey    = var.SSH_PUBLIC_KEY
-
-  # vritti = admin SSH; vm2_public = world-open 80/443 + git-SSH (direct-served apw1, agent nginx + LE).
-  security_group_ids = [tonumber(excloud_security_group.vritti.id), tonumber(excloud_security_group.vm2_public.id)]
-
-  # Reserved IP comes from the network layer's state (see VM1 note).
-  allocate_public_ipv4       = true
-  public_ipv4_reservation_id = data.terraform_remote_state.network.outputs.vm2_ip_id
-
-  root_volume = {
-    name                     = "vritti-vm2-root"
-    size_gib                 = var.vm2_root_gib
-    baseline_iops            = var.root_baseline_iops
-    baseline_throughput_mbps = var.root_baseline_throughput_mbps
-  }
-}
-
-# No separate volume on VM2 — everything (Docker, vritti-core, static sites, prod Postgres,
-# pgbackrest) lives on the disposable root. DB durability is pgBackRest → Cloudflare R2
-# (continuous WAL archiving); on a VM rebuild, Ansible restores from R2.
+# VM2 (production / agent host) now lives in its own root: infrastructure/tofu/vm2/
+# (own state key vm2/terraform.tfstate), so it can be created/destroyed independently of vm1.

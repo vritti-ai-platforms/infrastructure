@@ -1,0 +1,7 @@
+# One placeholder host in the `core` group — it carries NO per-VM data. The real IP and every secret
+# come from the pinned --env's /agent folder (TARGET_IP, GHCR_*, DEPLOYMENT_ID, ENROLL_TOKEN), so the
+# VM is selected purely by --env: apw1 → prod core, dev → cloud dev core, apw2 → … Adding a VM = create
+# its Infisical env with those secrets; this file never changes.
+core:
+  hosts:
+    core-target: {}

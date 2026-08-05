@@ -1,0 +1,5 @@
+# One fixed host — the cloud control-plane VM. Its IP comes from the CLOUD_TARGET_IP secret
+# (infrastructure/prod), so no IP is hardcoded here (see group_vars/cloud.yml). Provisioned by site.yml.
+cloud:
+  hosts:
+    vritti-cloud: {}

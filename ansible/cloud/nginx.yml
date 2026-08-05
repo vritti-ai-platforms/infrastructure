@@ -1,12 +1,12 @@
-# Update vm1's nginx config (roles/cloud_stack templates → /opt/vritti/nginx/) and hot-reload nginx,
-# WITHOUT a full cloud-stack redeploy. The reload is what actually applies a cloud.conf change —
+# Update the cloud VM's nginx config (roles/cloud_stack templates → /opt/vritti/nginx/) and hot-reload
+# nginx, WITHOUT a full cloud-stack redeploy. The reload is what actually applies a cloud.conf change —
 # `docker compose up -d` won't restart nginx just because a bind-mounted file changed.
 #
-# Run from this dir (.infisical.json pins infrastructure / prod, so the tofu inventory resolves vm1):
+# Run from this dir (.infisical.json pins infrastructure / prod, so the tofu inventory resolves cloud):
 #   infisical run -- ansible-playbook nginx.yml
 #   infisical run -- ansible-playbook nginx.yml --check --diff   # preview the change, apply nothing
-- name: Update vm1 nginx config + reload
-  hosts: vm1
+- name: Update cloud nginx config + reload
+  hosts: cloud
   become: true
 
   tasks:

@@ -1,5 +1,5 @@
 ---
-# ZFS pool backing DbLab thin clones. vm1 is root-only (no separate data disk), so we back the
+# ZFS pool backing DbLab thin clones. the cloud VM is root-only (no separate data disk), so we back the
 # pool with a sparse FILE vdev on the root disk. Fine for a dev DbLab (lower IOPS than a raw disk).
 # The pool is mounted under the DbLab mount dir so DbLab discovers it.
 

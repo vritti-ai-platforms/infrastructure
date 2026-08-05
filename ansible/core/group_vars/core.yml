@@ -1,0 +1,38 @@
+# Vars for the `core` group (roles: base + docker + agent) — one agent-hosted core VM per Infisical
+# env. EVERYTHING per-VM comes from the pinned --env's /agent folder (injected by `infisical run
+# --env=<vm> --path=/agent`), so this file is identical for every VM and the inventory holds no
+# per-host data. Select the VM purely by --env; adding a VM = create its env with these secrets.
+
+# Connection — host IP from the per-env TARGET_IP secret (the reserved public IP; tofu output
+# <name>_public_ipv4). The inventory carries NO IPs.
+ansible_host: "{{ lookup('env', 'TARGET_IP') }}"
+ansible_python_interpreter: /usr/bin/python3
+ansible_user: ubuntu
+ansible_ssh_private_key_file: "~/.ssh/id_rsa"
+
+# GHCR login (docker role) — from this env's /agent secrets; the login persists on the host so the
+# agent role can pull the private application-agent image.
+ghcr_username: "{{ lookup('env', 'GHCR_USERNAME') | default('shashank-vritti', true) }}"
+ghcr_token: "{{ lookup('env', 'GHCR_TOKEN') }}"
+
+# Agent enroll/identity (roles/agent) — UNPREFIXED; the env scopes them to this VM.
+deployment_id: "{{ lookup('env', 'DEPLOYMENT_ID') }}"
+enroll_token: "{{ lookup('env', 'ENROLL_TOKEN') }}"
+# cloud_url has a sane default in roles/agent/defaults/main.yml; override here only if needed.
+
+# Host baseline (base role).
+swap_size_gb: 4
+# Open :53 (tcp+udp) for the agent's bundled acme-dns ONLY where the deployment manages its own edge
+# (edge:managed → issues wildcard certs via DNS-01). edge:external VMs (e.g. the cloud dev core) leave
+# it false. Per-env: set ALLOW_ACME_DNS=true in a managed-edge VM's env.
+allow_acme_dns: "{{ lookup('env', 'ALLOW_ACME_DNS') | default('false', true) | bool }}"
+extra_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - ufw
+  - unattended-upgrades
+
+# Docker.
+docker_apt_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"

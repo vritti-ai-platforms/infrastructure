@@ -1,8 +1,8 @@
-# VM1 — cloud control plane. Ansible owns the host + the cloud compose stack (nginx + cloud-web
+# cloud — cloud control plane. Ansible owns the host + the cloud compose stack (nginx + cloud-web
 # SPA + cloud-server + postgres/redis/nats + DbLab + TLS + Cloudflare tunnel). Core deployments
 # (dev + prod vritti-core) are owned by the Go agent and are NOT provisioned here.
-- name: Provision VM1 (cloud control plane)
-  hosts: vm1
+- name: Provision cloud control plane
+  hosts: cloud
   become: true
   roles:
     - role: base

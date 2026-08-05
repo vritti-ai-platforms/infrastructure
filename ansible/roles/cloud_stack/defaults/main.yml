@@ -27,7 +27,7 @@ vritti_cloud_env: "production"
 vritti_cloud_path: "/cloud-server"
 infisical_domain: "https://infisical.vrittiai.com"
 
-# Shared external network for the agent's dev-core stack. On vm1 the dev core runs with no nginx
+# Shared external network for the agent's dev-core stack. On the cloud VM the dev core runs with no nginx
 # of its own (AddOns.Nginx=false), so THIS cloud nginx is its edge — it attaches to this network
 # to route *.dev -> core-server:3002. The agent creates the network too; whoever runs first wins.
 core_network_name: "vritti-core-net"
@@ -37,15 +37,15 @@ dblab_mount_dir: "/var/lib/dblab/pools"
 dblab_verification_token: "{{ lookup('env', 'ANSI_DBLAB_TOKEN') | default('vritti-dblab-dev', true) }}"
 
 # DbLab physical restore source = the prod core pgBackRest R2 repo (stanza `core`). These are
-# SHARED secrets with vm2's agent (Infisical, ANSI_CORE_BACKREST_*). Empty until vm2 prod core +
+# SHARED secrets with the core host's agent (Infisical, ANSI_CORE_BACKREST_*). Empty until the core prod core +
 # pgBackRest->R2 exist, which is why DbLab is inert on first deploy.
 core_backrest_stanza: "core"
 core_backrest_r2_endpoint: "{{ lookup('env', 'ANSI_CORE_BACKREST_R2_ENDPOINT') }}"
 core_backrest_r2_bucket: "{{ lookup('env', 'ANSI_CORE_BACKREST_R2_BUCKET') }}"
 core_backrest_r2_access_key: "{{ lookup('env', 'ANSI_CORE_BACKREST_R2_ACCESS_KEY') }}"
 core_backrest_r2_secret_key: "{{ lookup('env', 'ANSI_CORE_BACKREST_R2_SECRET_KEY') }}"
-# repo1 = vm2's LOCAL repo cipher (vm2-only, never read here). repo2 = the R2 repo cipher, SHARED
-# with vm2's agent — this is the one DbLab must use to decrypt the R2 backups it restores from.
+# repo1 = the core host's LOCAL repo cipher (core-only, never read here). repo2 = the R2 repo cipher, SHARED
+# with the core host's agent — this is the one DbLab must use to decrypt the R2 backups it restores from.
 core_backrest_repo1_cipher_pass: "{{ lookup('env', 'ANSI_CORE_BACKREST_REPO1_CIPHER_PASS') }}"
 core_backrest_repo2_cipher_pass: "{{ lookup('env', 'ANSI_CORE_BACKREST_REPO2_CIPHER_PASS') }}"
 core_backrest_repo_path: "{{ lookup('env', 'ANSI_CORE_BACKREST_REPO_PATH') | default('/pgbackrest', true) }}"

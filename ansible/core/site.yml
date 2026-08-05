@@ -1,0 +1,16 @@
+# core/site.yml — REUSABLE: bootstrap a target VM (base + docker + GHCR login) AND deploy/enroll the
+# vritti-application-agent, in ONE pass, entirely from the vritti-core project. One agent-hosted core
+# VM per Infisical env; select the VM purely by --env (its /agent folder supplies TARGET_IP, GHCR_*,
+# DEPLOYMENT_ID, ENROLL_TOKEN). The agent then materializes the stack from cloud's signed desired-state.
+#
+#   infisical run --env=apw1 --path=/agent -- ansible-playbook site.yml   # prod core (apw1, edge:managed)
+#   infisical run --env=dev  --path=/agent -- ansible-playbook site.yml   # cloud dev core (edge:external)
+#
+# Adding a VM = create its Infisical env with those /agent secrets — no file edits here.
+- name: Bootstrap + deploy the agent on a core VM
+  hosts: core
+  become: true
+  roles:
+    - role: base
+    - role: docker
+    - role: agent

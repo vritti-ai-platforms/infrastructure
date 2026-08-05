@@ -1,7 +1,7 @@
-# Managed by Ansible (roles/cloud_stack). Edge routing for vm1.
+# Managed by Ansible (roles/cloud_stack). Edge routing for the cloud VM.
 #
 # PUBLIC listener (0.0.0.0:80/443) serves ONLY the genuinely public app surfaces:
-#   cloud.  -> cloud-web SPA (static) + /api -> cloud-server    *.dev -> dev core-server
+#   cloud.  -> cloud-web SPA (static) + /api -> cloud-server    *.vrittiai.dev -> dev core-server
 # Any other Host (admin./dblab./git.) is HARD-REFUSED with 444. Those never arrive on the
 # public IP — they come only through the cloudflared tunnel, which targets internal services
 # directly (see tofu network/zerotrust.tf). This is what makes Cloudflare Access unbypassable:
@@ -123,12 +123,14 @@ server {
     }
 }
 
-# *.dev.vrittiai.com — dev core (agent-managed). Proxied placeholder until the dev core stack is
-# stood up; nginx stays up and returns 502 while core-server is absent (variable upstream).
+# *.vrittiai.dev — dev core (agent-managed). Proxied placeholder until the dev core stack is stood
+# up; nginx stays up and returns 502 while core-server is absent (variable upstream). Served under
+# the dedicated vrittiai.dev zone (first-level wildcard, proxied Full-Strict); the shared `vrittiai`
+# SAN cert covers *.vrittiai.dev.
 server {
     listen 443 ssl;
     http2 on;
-    server_name ~^.*\.dev\.vrittiai\.com$;
+    server_name ~^.*\.vrittiai\.dev$;
     resolver 127.0.0.11 valid=10s ipv6=off;
 
     ssl_certificate     /etc/nginx/ssl/vrittiai.com.crt;

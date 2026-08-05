@@ -2,18 +2,18 @@
 # compute layer only READS their ids (via remote state), so destroying the VMs never releases
 # them. To intentionally release an IP: remove its prevent_destroy here, then destroy this layer.
 
-resource "excloud_public_ipv4" "vm1" {
+resource "excloud_public_ipv4" "cloud" {
   zone_id = var.zone_id
-  name    = "vritti-vm1"
+  name    = "vritti-cloud"
 
   lifecycle {
     prevent_destroy = true
   }
 }
 
-resource "excloud_public_ipv4" "vm2" {
+resource "excloud_public_ipv4" "apw1" {
   zone_id = var.zone_id
-  name    = "vritti-vm2"
+  name    = "vritti-apw1"
 
   lifecycle {
     prevent_destroy = true

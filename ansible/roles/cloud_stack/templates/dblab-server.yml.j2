@@ -1,12 +1,12 @@
 # Managed by Ansible (roles/cloud_stack). Database Lab Engine — thin clones of the PROD vritti-core
-# DB, consumed by the DEV vritti-core deployment on vm1.
+# DB, consumed by the DEV vritti-core deployment on the cloud VM.
 #
-# PHYSICAL mode: DbLab restores from the core pgBackRest repo in R2 (written by vm2's prod agent),
+# PHYSICAL mode: DbLab restores from the core pgBackRest repo in R2 (written by the core host's prod agent),
 # builds a ZFS dataset, and serves instant clones. No live connection to prod.
 #
-# ⚠️ INERT until vm2's prod core is deployed with pgBackRest -> R2. Until backups exist in R2 there
+# ⚠️ INERT until the core host's prod core is deployed with pgBackRest -> R2. Until backups exist in R2 there
 # is nothing to restore, so retrieval will no-op/err (expected). The CORE_BACKREST_* values are
-# SHARED secrets (Infisical) that MUST equal what vm2's agent uses to write + encrypt the repo —
+# SHARED secrets (Infisical) that MUST equal what the core host's agent uses to write + encrypt the repo —
 # especially the cipher passphrase, or DbLab can't decrypt. Validate this config once backups exist.
 server:
   verificationToken: "{{ dblab_verification_token }}"
@@ -46,7 +46,7 @@ retrieval:
         tool: pgbackrest
         pgbackrest:
           numberOfJobs: 2
-        # pgBackRest reads the core stanza's R2 repo via these env vars (shared with vm2's agent).
+        # pgBackRest reads the core stanza's R2 repo via these env vars (shared with the core host's agent).
         envs:
           PGBACKREST_STANZA: "{{ core_backrest_stanza }}"
           PGBACKREST_REPO1_TYPE: s3
@@ -58,8 +58,8 @@ retrieval:
           PGBACKREST_REPO1_S3_KEY_SECRET: "{{ core_backrest_r2_secret_key }}"
           PGBACKREST_REPO1_PATH: "{{ core_backrest_repo_path }}"
           PGBACKREST_REPO1_CIPHER_TYPE: aes-256-cbc
-          # DbLab numbers the R2 repo as its own repo1 (its only repo), but on vm2 the R2 repo is
-          # repo2 — so this MUST be the repo2 (R2/shared) cipher, not repo1 (vm2's local repo).
+          # DbLab numbers the R2 repo as its own repo1 (its only repo), but on the core host the R2 repo is
+          # repo2 — so this MUST be the repo2 (R2/shared) cipher, not repo1 (the core host's local repo).
           PGBACKREST_REPO1_CIPHER_PASS: "{{ core_backrest_repo2_cipher_pass }}"
     physicalSnapshot:
       options:

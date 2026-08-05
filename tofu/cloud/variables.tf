@@ -32,28 +32,15 @@ variable "ANSI_CLOUDFLARE_API_TOKEN" {
   sensitive   = true
 }
 
-# --- VM1: control / build / dev ---
-variable "vm1_instance_type" {
-  description = "VM1 size (2 vCPU / 4 GB)"
+# --- cloud VM: control / build / dev (runs the cloud stack + Infisical) ---
+variable "cloud_instance_type" {
+  description = "cloud VM size (2 vCPU / 4 GB)"
   type        = string
   default     = "t1a.medium"
 }
 
-variable "vm1_root_gib" {
-  description = "VM1 root disk (25 GiB is included with the instance type; not worth shrinking)"
-  type        = number
-  default     = 25
-}
-
-# --- VM2: production ---
-variable "vm2_instance_type" {
-  description = "VM2 size (2 vCPU / 2 GB)"
-  type        = string
-  default     = "t1a.small"
-}
-
-variable "vm2_root_gib" {
-  description = "VM2 root disk (25 GiB is included with the instance type; not worth shrinking)"
+variable "cloud_root_gib" {
+  description = "cloud VM root disk (25 GiB is included with the instance type; not worth shrinking)"
   type        = number
   default     = 25
 }
