@@ -33,10 +33,10 @@ locals {
   #
   # NO apex "*" catch-all — the cloud VM serves only explicit hostnames (cloud./api. here +
   # admin./dblab. via zero-trust tunnel CNAMEs); undefined subdomains must NOT land on it.
-  # DNS wildcards only match ONE label, so *.dev.vrittiai.com and *.apw1.vrittiai.com are distinct.
+  # The dev core lives on its own zone now (*.vrittiai.dev, below) — the old *.dev.vrittiai.com
+  # wildcard was retired with that migration (cert + nginx moved to *.vrittiai.dev).
   dns_records = {
-    "*.dev"  = { vm = "cloud", proxied = false } # *.dev.vrittiai.com  → cloud VM
-    "*.apw1" = { vm = "apw1", proxied = false }  # *.apw1.vrittiai.com → apw1 VM (AP-West-1: India + Gulf)
+    "*.apw1" = { vm = "apw1", proxied = false } # *.apw1.vrittiai.com → apw1 VM (AP-West-1: India + Gulf)
 
     # cloud. is PROXIED (orange cloud): DNS returns Cloudflare IPs (origin hidden), CF terminates
     # TLS + runs DDoS/WAF, then reaches nginx over the internet (Full-Strict, validated against the
