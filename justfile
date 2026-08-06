@@ -1,17 +1,17 @@
 # Vritti infrastructure — task runner (install: `brew install just`).
-# Bare `just` lists every recipe. Every recipe wraps `infisical run` so tofu + ansible get secrets.
+# Bare `just` lists every recipe. Every recipe wraps `infisical run` so tofu + ansible get their secrets.
 #
-# tofu takes a FOLDER arg — one of the dirs under tofu/, each with its own state:
+# tofu recipes take a FOLDER arg — a dir under tofu/, each with its own state:
 #   network → reserved IPs, DNS, zero-trust, the shared vritti-core security group
 #   cloud   → the cloud control-plane VM
-#   apw1    → the apw1 core VM         (copy for apw2, …)
-# e.g.  just tf-plan network   ·   just tf-apply cloud   ·   just tf-init apw1
+#   apw1    → the apw1 core/agent VM      (copy for apw2, …)
+# ansible recipes take an ENV arg — the deployment (apw1, apw2, …, or `dev`).
+# Omit the arg on any recipe to get an interactive picker menu.
 
 _default:
     @just --list
 
-# Point the admin SSH allow-list at THIS machine's current public IP, then apply the SG roots
-# (network = shared vritti-core SG, cloud = vritti-cloud SG). Run after your ISP changes your IP.
+# Point the admin-SSH allow-list at this machine's current public IP and apply it (network + cloud SGs)
 ip-update:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -33,22 +33,22 @@ ip-update:
 # Every deployable folder under tofu/ (auto-discovered; modules/infisical excluded).
 tf_folders := `ls -d tofu/*/ 2>/dev/null | xargs -n1 basename | grep -vxE 'modules|infisical' | sort | tr '\n' ' '`
 
-# Plan a folder (menu if omitted) — `just tf-plan` or `just tf-plan network`
+# tofu plan a folder (network | cloud | apwN) — preview infra changes; picker menu if omitted
 tf-plan folder="": (_tf "plan" folder)
-# Apply a folder (menu if omitted; tofu then asks y/n) — `just tf-apply` or `just tf-apply cloud`
+# tofu apply a folder — create/update its infra (tofu then confirms); picker menu if omitted
 tf-apply folder="": (_tf "apply" folder)
-# Re-init a folder (new folder / module / provider change) — `just tf-init` or `just tf-init apw1`
+# tofu init a folder — run after a new folder / module / provider change; picker menu if omitted
 tf-init folder="": (_tf "init" folder)
-# Show a folder's outputs — `just tf-output` or `just tf-output network`
+# Show a tofu folder's outputs (IPs, IDs, …); picker menu if omitted
 tf-output folder="": (_tf "output" folder)
-# Destroy a folder's resources (menu if omitted; tofu then asks yes/no) — `just tf-destroy` or `just tf-destroy apw1`
+# tofu destroy a folder's resources (tofu then confirms yes/no); picker menu if omitted
 tf-destroy folder="": (_tf "destroy" folder)
 
-# Drift check across every folder
+# Drift check — plan every tofu folder and print its "No changes" / "Plan:" summary
 tf-plan-all:
     @for r in {{tf_folders}}; do echo "── $r ──"; (cd tofu/$r && infisical run --silent -- tofu plan -no-color 2>&1 | grep -iE "No changes|Plan:" | head -1) || true; done
 
-# Format all tofu files
+# Format all tofu files (tofu fmt -recursive)
 tf-fmt:
     cd tofu && tofu fmt -recursive
 
@@ -69,8 +69,7 @@ _tf cmd folder:
 # Core envs: the apwN tofu folders + the cloud dev core (auto-discovered).
 core_envs := `(ls -d tofu/*/ 2>/dev/null | xargs -n1 basename | grep -vxE 'modules|infisical|network|cloud'; echo dev) | sort -u | tr '\n' ' '`
 
-# Cloud VM (menu if omitted) — all (full provision) | images (refresh) | nginx (reload).
-# e.g. `just ansi-cloud` or `just ansi-cloud all`
+# Provision the CLOUD control-plane VM — all (full) | images (refresh) | nginx (reload); picker menu if omitted
 ansi-cloud cmd="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -87,8 +86,7 @@ ansi-cloud cmd="":
     esac
     cd ansible/cloud && infisical run -- ansible-playbook "$pb"
 
-# Core agent VM — FULL provision (base + docker + agent). Menu if env omitted.
-# e.g. `just ansi-core` or `just ansi-core apw1`   (--path=/agent baked in)
+# FULL-provision a core/agent VM — base + docker + agent roles + first enroll; picker menu if env omitted
 ansi-core env="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -97,12 +95,9 @@ ansi-core env="":
       echo "Select a core env:" >&2; PS3="> "
       select sel in {{core_envs}}; do [ -n "$sel" ] && break; done
     fi
-    cd ansible/core && infisical run --env="$sel" --path=/agent -- ansible-playbook site.yml
+    cd ansible/core && infisical run --env="$sel" --path=/agent/ansible -- ansible-playbook site.yml
 
-# Roll the AGENT to the latest image only (skips base/docker; force-pulls latest-main + restarts).
-# Fast update on an already-bootstrapped core VM; enrollment is preserved. Menu if env omitted.
-# (use `just ansi-core <env>` with `-e agent_reset=true` if you need a clean re-enroll instead.)
-# e.g. `just ansi-core-agent` or `just ansi-core-agent apw1`
+# Roll a core VM's agent to the latest image — force-pull latest-main + restart; enrollment kept; menu if omitted
 ansi-core-agent env="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -111,14 +106,10 @@ ansi-core-agent env="":
       echo "Select a core env:" >&2; PS3="> "
       select sel in {{core_envs}}; do [ -n "$sel" ] && break; done
     fi
-    cd ansible/core && infisical run --env="$sel" --path=/agent -- \
+    cd ansible/core && infisical run --env="$sel" --path=/agent/ansible -- \
       ansible-playbook site.yml --tags agent -e agent_force_restart=true
 
-# Re-enroll the AGENT with a FRESH enroll token: wipes its cached credential/keys, re-templates the env
-# (current VM2_ENROLL_TOKEN from Infisical), reinstalls the unit, and starts → fresh enroll. Use after
-# regenerating the enroll token in the UI. Enroll tokens are SINGLE-USE, so the new token must already be in
-# Infisical and this runs once per token. Menu if env omitted.
-# e.g. `just ansi-core-agent-re-enroll` or `just ansi-core-agent-re-enroll apw1`
+# Re-enroll a core VM's agent with a FRESH single-use token — wipes its credential + re-enrolls (regenerate the token first; confirms)
 ansi-core-agent-re-enroll env="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -129,5 +120,5 @@ ansi-core-agent-re-enroll env="":
     fi
     read -r -p "Reset + RE-ENROLL the agent on '$sel'? Wipes its cached credential and consumes a single-use enroll token. [y/N] " ok
     [ "$ok" = y ] || [ "$ok" = Y ] || { echo "aborted (no changes)"; exit 0; }
-    cd ansible/core && infisical run --env="$sel" --path=/agent -- \
+    cd ansible/core && infisical run --env="$sel" --path=/agent/ansible -- \
       ansible-playbook site.yml --tags agent -e agent_reset=true
