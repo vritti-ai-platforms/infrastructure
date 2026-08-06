@@ -41,6 +41,8 @@ tf-apply folder="": (_tf "apply" folder)
 tf-init folder="": (_tf "init" folder)
 # Show a folder's outputs — `just tf-output` or `just tf-output network`
 tf-output folder="": (_tf "output" folder)
+# Destroy a folder's resources (menu if omitted; tofu then asks yes/no) — `just tf-destroy` or `just tf-destroy apw1`
+tf-destroy folder="": (_tf "destroy" folder)
 
 # Drift check across every folder
 tf-plan-all:
@@ -111,3 +113,21 @@ ansi-core-agent env="":
     fi
     cd ansible/core && infisical run --env="$sel" --path=/agent -- \
       ansible-playbook site.yml --tags agent -e agent_force_restart=true
+
+# Re-enroll the AGENT with a FRESH enroll token: wipes its cached credential/keys, re-templates the env
+# (current VM2_ENROLL_TOKEN from Infisical), reinstalls the unit, and starts → fresh enroll. Use after
+# regenerating the enroll token in the UI. Enroll tokens are SINGLE-USE, so the new token must already be in
+# Infisical and this runs once per token. Menu if env omitted.
+# e.g. `just ansi-core-agent-re-enroll` or `just ansi-core-agent-re-enroll apw1`
+ansi-core-agent-re-enroll env="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    sel="{{env}}"
+    if [ -z "$sel" ]; then
+      echo "Select a core env:" >&2; PS3="> "
+      select sel in {{core_envs}}; do [ -n "$sel" ] && break; done
+    fi
+    read -r -p "Reset + RE-ENROLL the agent on '$sel'? Wipes its cached credential and consumes a single-use enroll token. [y/N] " ok
+    [ "$ok" = y ] || [ "$ok" = Y ] || { echo "aborted (no changes)"; exit 0; }
+    cd ansible/core && infisical run --env="$sel" --path=/agent -- \
+      ansible-playbook site.yml --tags agent -e agent_reset=true
