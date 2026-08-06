@@ -13,4 +13,7 @@
   roles:
     - role: base
     - role: docker
+    # Tagged so `ansible-playbook site.yml --tags agent` re-deploys ONLY the agent (skips base/docker) —
+    # a fast image roll on an already-bootstrapped VM. See the `just ansi-core-agent` recipe.
     - role: agent
+      tags: [agent]

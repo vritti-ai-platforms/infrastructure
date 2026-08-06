@@ -96,3 +96,27 @@
     enabled: true
     state: started
     daemon_reload: true
+
+# A pulled `latest-main` update does not, by itself, recreate a running container — `state: started` is a
+# no-op when the unit is already up, so the agent would keep running the OLD image. Compare the running
+# container's image id against the freshly-pulled one and restart only when they differ (or when forced),
+# so `just ansi-core` / `just ansi-core-agent` actually roll the agent forward without a needless bounce.
+- name: Read the freshly-pulled agent image id
+  community.docker.docker_image_info:
+    name: "{{ agent_image }}:{{ agent_image_tag }}"
+  register: agent_image_info
+
+- name: Read the running agent container's image id
+  community.docker.docker_container_info:
+    name: vritti-agent
+  register: agent_container_info
+
+- name: Restart the agent when its image is out of date (or a restart is forced)
+  ansible.builtin.systemd:
+    name: vritti-agent
+    state: restarted
+  when: >
+    (agent_force_restart | bool)
+    or (agent_container_info.exists
+        and (agent_image_info.images | length) > 0
+        and agent_container_info.container.Image != agent_image_info.images[0].Id)

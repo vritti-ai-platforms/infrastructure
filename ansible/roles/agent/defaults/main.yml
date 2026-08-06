@@ -19,6 +19,11 @@ agent_network: "vritti-core-net"
 # are single-use, so a routine converge must NOT wipe. Run: `-e agent_reset=true` (with a fresh token).
 agent_reset: false
 
+# When true, restart the agent even if its image id is unchanged. The `just ansi-core-agent` update recipe
+# sets this so it always applies the freshly-pulled image; a routine converge leaves it false (restart
+# only when the image actually changed, so nothing bounces needlessly).
+agent_force_restart: false
+
 # cloud-server the agent enrolls with and pulls signed desired-state from. The agent API is served
 # on the PUBLIC, proxied api. host (NOT Access-gated) — the agent's own Ed25519 + enroll-token auth
 # is the boundary, so no Cloudflare service token is needed on the VM. This is the ONLY deployment

@@ -85,7 +85,7 @@ ansi-cloud cmd="":
     esac
     cd ansible/cloud && infisical run -- ansible-playbook "$pb"
 
-# Core agent VM (menu if omitted) — env: apw1 (prod core) | dev (cloud dev core) | apw2 …
+# Core agent VM — FULL provision (base + docker + agent). Menu if env omitted.
 # e.g. `just ansi-core` or `just ansi-core apw1`   (--path=/agent baked in)
 ansi-core env="":
     #!/usr/bin/env bash
@@ -96,3 +96,18 @@ ansi-core env="":
       select sel in {{core_envs}}; do [ -n "$sel" ] && break; done
     fi
     cd ansible/core && infisical run --env="$sel" --path=/agent -- ansible-playbook site.yml
+
+# Roll the AGENT to the latest image only (skips base/docker; force-pulls latest-main + restarts).
+# Fast update on an already-bootstrapped core VM; enrollment is preserved. Menu if env omitted.
+# (use `just ansi-core <env>` with `-e agent_reset=true` if you need a clean re-enroll instead.)
+# e.g. `just ansi-core-agent` or `just ansi-core-agent apw1`
+ansi-core-agent env="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    sel="{{env}}"
+    if [ -z "$sel" ]; then
+      echo "Select a core env:" >&2; PS3="> "
+      select sel in {{core_envs}}; do [ -n "$sel" ] && break; done
+    fi
+    cd ansible/core && infisical run --env="$sel" --path=/agent -- \
+      ansible-playbook site.yml --tags agent -e agent_force_restart=true
