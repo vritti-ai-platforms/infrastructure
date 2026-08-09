@@ -1,0 +1,39 @@
+# Vars for the `webserver` group (roles: base + docker + ws-agent). Each web server is its OWN Infisical
+# env (ws1, ws2, …) in the web-server project; `infisical run --env=wsN` injects that env's secrets. The
+# env name IS the server code, so the target host is {env}.vrittiai.com — the `just ansi-webserver` recipe
+# passes it as `-e target_host`. Cloud publishes that A record when the admin sets the server's IP, so it
+# resolves before we SSH in.
+ansible_host: "{{ target_host }}"
+ansible_python_interpreter: /usr/bin/python3
+ansible_user: ubuntu
+ansible_ssh_private_key_file: "~/.ssh/id_rsa"
+
+# GHCR login (docker role) — from this env's secrets; the login persists on the host so the ws-agent role
+# can pull the private ws-agent + postgres-pgbackrest images.
+ghcr_username: "{{ lookup('env', 'GHCR_USERNAME') | default('shashank-vritti', true) }}"
+ghcr_token: "{{ lookup('env', 'GHCR_TOKEN') }}"
+
+# ws-agent identity (roles/ws-agent) — from this env's secrets, scoped to this web server.
+web_server_id: "{{ lookup('env', 'WEB_SERVER_ID') }}"
+enroll_token: "{{ lookup('env', 'ENROLL_TOKEN') }}"
+# cloud_url has a sane default in roles/ws-agent/defaults/main.yml; override there only if needed.
+#
+# NOTE: the Postgres owner creds (DB_OWNER_USER / DB_OWNER_PASSWORD) and the pgBackRest S3 creds also live
+# in this env — but at the /agent/postgres and /agent/backup paths, fetched by the agent at RUNTIME through
+# the secret store (configured in the admin Secret Store setup step to point at this same env). They are NOT
+# deploy-time env vars, so they don't appear here.
+
+# Host baseline (base role). Web servers use Caddy (HTTP-01 / on-demand TLS), NOT acme-dns — :53 stays
+# closed. Caddy needs :80 + :443; ensure the VM's cloud firewall / security group allows them.
+swap_size_gb: 4
+allow_acme_dns: false
+extra_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - ufw
+  - unattended-upgrades
+
+# Docker.
+docker_apt_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"

@@ -1,0 +1,26 @@
+---
+# The vritti-ws-agent image (built by the ws-agent repo's build.yml → GHCR).
+ws_agent_image: "ghcr.io/vritti-ai-platforms/ws-agent"
+ws_agent_image_tag: "latest-main"
+
+# Where the ws-agent keeps its identity/state, the web stack bind-mount root (pgdata, caddy config/data,
+# web-root, letsencrypt, pgbackrest), and its env file.
+ws_agent_data_dir: "/var/lib/vritti-ws-agent"
+ws_agent_stack_root: "/opt/vritti-web"
+ws_agent_config_dir: "/etc/vritti-ws-agent"
+
+# The web stack Docker network (must match deploy.Network in the agent). Pre-created before the agent
+# starts; the agent joins it and its containers (postgres, caddy, website-*) reuse it.
+ws_agent_network: "vritti-web"
+
+# Clean reinstall: when true, wipe every trace of the agent (unit, container, and the cached
+# enrollment/keys/machine-secrets in ws_agent_data_dir) BEFORE reinstalling, so it re-enrolls with the
+# current enroll token. Opt-in only — enroll tokens are single-use, so a routine converge must NOT wipe.
+ws_agent_reset: false
+
+# When true, restart the agent even if its image id is unchanged (the image-roll recipe sets this).
+ws_agent_force_restart: false
+
+# cloud-server the agent enrolls with and pulls signed desired-state from — the PUBLIC proxied api. host.
+# The agent's Ed25519 + enroll-token auth is the boundary, so no Cloudflare service token is needed here.
+cloud_url: "https://api.vrittiai.com"

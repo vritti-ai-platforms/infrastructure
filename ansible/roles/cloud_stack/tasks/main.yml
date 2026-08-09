@@ -196,6 +196,17 @@
     pull: always
     state: present
 
+- name: Prune old/unused images now that the new ones are live (frees the disk each converge)
+  # `pull: always` above leaves the previous cloud-server/infra layers behind; on a 24 GB root they pile
+  # up until a pull dies with "no space left on device". Prune ALL images not referenced by a running
+  # container (dangling: false = docker image prune -af) AFTER the stack is up, so the just-pulled images
+  # are in use and kept while the superseded ones are reclaimed. Build cache too.
+  community.docker.docker_prune:
+    images: true
+    images_filters:
+      dangling: false
+    builder_cache: true
+
 - name: Initialize + schedule cloud DB backups (pgBackRest -> R2)
   when: cloud_backrest_enabled | bool
   block:

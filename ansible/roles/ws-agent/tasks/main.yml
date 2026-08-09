@@ -1,0 +1,119 @@
+---
+# Installs the vritti-ws-agent as a container run under systemd. The agent enrolls with cloud (using the
+# one-time token, first boot only) and then reconciles the web-server stack (Postgres + pgBackRest + Caddy
+# + websites) on this host from signed desired-state. Ansible does NOT deploy the stack — the agent
+# materializes those containers itself.
+
+# Clean reinstall (opt-in: -e ws_agent_reset=true). Wipes every trace so the install rebuilds from scratch
+# and re-enrolls with a fresh token. The agent only consumes the enroll token when there is NO cached
+# enrollment.json, so wiping ws_agent_data_dir is what forces re-enrollment.
+- name: Reset — remove every trace of the ws-agent before reinstall
+  when: ws_agent_reset | bool
+  block:
+    - name: Stop and disable the ws-agent unit (ignore if absent)
+      ansible.builtin.systemd:
+        name: vritti-ws-agent
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Force-remove the ws-agent container (ignore if absent)
+      community.docker.docker_container:
+        name: vritti-ws-agent
+        state: absent
+        force_kill: true
+
+    - name: Remove the systemd unit file
+      ansible.builtin.file:
+        path: /etc/systemd/system/vritti-ws-agent.service
+        state: absent
+
+    - name: Reload systemd after unit removal
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Wipe ws-agent identity/state (enrollment cache, keys, machine secrets)
+      ansible.builtin.file:
+        path: "{{ ws_agent_data_dir }}"
+        state: absent
+
+- name: Create ws-agent data dir (keys, machine secrets, enrollment cache)
+  ansible.builtin.file:
+    path: "{{ ws_agent_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Create web stack root (bind-mount source for pgdata, caddy, web-root, backup)
+  ansible.builtin.file:
+    path: "{{ ws_agent_stack_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Create ws-agent config dir (env file)
+  ansible.builtin.file:
+    path: "{{ ws_agent_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Pull the ws-agent image
+  community.docker.docker_image:
+    name: "{{ ws_agent_image }}:{{ ws_agent_image_tag }}"
+    source: pull
+    force_source: true
+
+- name: Template ws-agent environment file
+  ansible.builtin.template:
+    src: ws-agent.env.j2
+    dest: "{{ ws_agent_config_dir }}/ws-agent.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart vritti-ws-agent
+
+- name: Install systemd unit for the ws-agent
+  ansible.builtin.template:
+    src: vritti-ws-agent.service.j2
+    dest: /etc/systemd/system/vritti-ws-agent.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart vritti-ws-agent
+
+- name: Enable and start the ws-agent
+  ansible.builtin.systemd:
+    name: vritti-ws-agent
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# A pulled `latest-main` update does not, by itself, recreate a running container — `state: started` is a
+# no-op when the unit is already up. Compare the running container's image id against the freshly-pulled
+# one and restart only when they differ (or when forced), so an image roll actually moves the agent forward.
+- name: Read the freshly-pulled ws-agent image id
+  community.docker.docker_image_info:
+    name: "{{ ws_agent_image }}:{{ ws_agent_image_tag }}"
+  register: ws_agent_image_info
+
+- name: Read the running ws-agent container's image id
+  community.docker.docker_container_info:
+    name: vritti-ws-agent
+  register: ws_agent_container_info
+
+- name: Restart the ws-agent when its image is out of date (or a restart is forced)
+  ansible.builtin.systemd:
+    name: vritti-ws-agent
+    state: restarted
+  when: >
+    (ws_agent_force_restart | bool)
+    or (ws_agent_container_info.exists
+        and (ws_agent_image_info.images | length) > 0
+        and ws_agent_container_info.container.Image != ws_agent_image_info.images[0].Id)

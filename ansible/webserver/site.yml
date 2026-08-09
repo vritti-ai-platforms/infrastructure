@@ -1,0 +1,19 @@
+# webserver/site.yml — bootstrap a web-server VM (base + docker + GHCR login) AND deploy/enroll the
+# vritti-ws-agent, in ONE pass, from the `webservers` Infisical project. One web server per env
+# (ws1, ws2, …); the env supplies WEB_SERVER_ID, ENROLL_TOKEN, GHCR_* (and, for the agent's RUNTIME
+# secret store, /agent/postgres + /agent/backup). The env name IS the server code, so the target is
+# {env}.vrittiai.com (cloud publishes that A record when the admin sets the server's IP, so it resolves
+# before we SSH in). The agent then materializes the stack from cloud's signed desired-state.
+#
+#   just ansi-webserver ws1             # provision + enroll ws1, targets ws1.vrittiai.com
+#
+- name: Bootstrap + deploy the ws-agent on a web-server VM
+  hosts: webserver
+  become: true
+  roles:
+    - role: base
+    - role: docker
+    # Tagged so `--tags ws-agent` re-deploys ONLY the agent (skips base/docker) — a fast image roll on an
+    # already-bootstrapped VM. See the `just ansi-webserver-agent` recipe.
+    - role: ws-agent
+      tags: [ws-agent]

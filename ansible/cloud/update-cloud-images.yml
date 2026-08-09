@@ -94,6 +94,21 @@
       changed_when: true
       no_log: true
 
+    - name: Prune old/unused images now that the new ones are live (frees the disk each deploy)
+      # Every deploy leaves the previous cloud-server layers behind; on a 24 GB root they pile up until a
+      # pull dies with "no space left on device". Prune ALL images not referenced by a running container
+      # (dangling: false = docker image prune -af) AFTER the recreate above, so the just-pulled images are
+      # in use and kept while the superseded ones are reclaimed. Build cache too.
+      community.docker.docker_prune:
+        images: true
+        images_filters:
+          dangling: false
+        builder_cache: true
+      register: cloud_image_prune
+
     - name: Report cloud-server container state
       ansible.builtin.debug:
-        msg: "cloud-server updated; cloud-web bundle refreshed at /opt/vritti/www/cloud."
+        msg: >-
+          cloud-server updated; cloud-web bundle refreshed at /opt/vritti/www/cloud;
+          reclaimed {{ (cloud_image_prune.images_space_reclaimed | default(0) / 1073741824) | round(2) }} GB
+          from {{ cloud_image_prune.images | default([]) | length }} old image(s).
