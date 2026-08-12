@@ -42,6 +42,11 @@ on:
         required: false
         type: boolean
         default: false
+      build_args:
+        description: 'Newline-separated Docker build args (e.g. CMD=application) — passed to build-push-action build-args; empty by default'
+        required: false
+        type: string
+        default: ''
     outputs:
       image_tag:
         description: 'The full image tag that was pushed'
@@ -150,6 +155,7 @@ jobs:
         with:
           context: ${{ inputs.build_context }}
           file: ${{ inputs.dockerfile_path }}
+          build-args: ${{ inputs.build_args }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

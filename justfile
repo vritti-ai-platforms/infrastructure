@@ -129,7 +129,7 @@ ansi-core-agent-re-enroll env="":
 # Run these from ansible/webserver (its .infisical.json pins the web-server project).
 
 # FULL-provision a web-server VM — base + docker + ws-agent + first enroll. Pass the env (ws1); prompts if omitted.
-ansi-webserver env="":
+ansi-ws env="":
     #!/usr/bin/env bash
     set -euo pipefail
     sel="{{env}}"
@@ -138,7 +138,7 @@ ansi-webserver env="":
       ansible-playbook site.yml -e target_host="${sel}.vrittiai.com"
 
 # Roll a web server's ws-agent to the latest image — force-pull latest-main + restart; enrollment kept.
-ansi-webserver-agent env="":
+ansi-ws-agent env="":
     #!/usr/bin/env bash
     set -euo pipefail
     sel="{{env}}"
@@ -148,7 +148,7 @@ ansi-webserver-agent env="":
 
 # Re-enroll a web server's ws-agent with a FRESH single-use token — wipes its credential + re-enrolls
 # (regenerate the token in the admin console + update the env's ENROLL_TOKEN first; confirms).
-ansi-webserver-re-enroll env="":
+ansi-ws-re-enroll env="":
     #!/usr/bin/env bash
     set -euo pipefail
     sel="{{env}}"

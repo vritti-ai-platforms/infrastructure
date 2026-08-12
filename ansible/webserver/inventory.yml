@@ -1,5 +1,5 @@
 # One placeholder host in the `webserver` group — it carries NO per-host data. The real target comes from
-# `-e target_host={env}.vrittiai.com` (the `just ansi-webserver` recipe derives it from the selected
+# `-e target_host={env}.vrittiai.com` (the `just ansi-ws` recipe derives it from the selected
 # Infisical env name); every secret comes from that env (WEB_SERVER_ID, ENROLL_TOKEN, GHCR_*). Selecting a
 # VM = picking its --env (ws1, ws2, …). Adding a VM = create its env. This file never changes.
 webserver:

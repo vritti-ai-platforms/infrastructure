@@ -1,6 +1,6 @@
 # Vars for the `webserver` group (roles: base + docker + ws-agent). Each web server is its OWN Infisical
 # env (ws1, ws2, …) in the web-server project; `infisical run --env=wsN` injects that env's secrets. The
-# env name IS the server code, so the target host is {env}.vrittiai.com — the `just ansi-webserver` recipe
+# env name IS the server code, so the target host is {env}.vrittiai.com — the `just ansi-ws` recipe
 # passes it as `-e target_host`. Cloud publishes that A record when the admin sets the server's IP, so it
 # resolves before we SSH in.
 ansible_host: "{{ target_host }}"
