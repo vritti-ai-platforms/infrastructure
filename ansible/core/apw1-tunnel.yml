@@ -41,7 +41,6 @@
     # connection time. Override with -e tunnel_origin_services='["postgres"]' to bring up a subset.
     tunnel_origin_services:
       - postgres
-      - gitea
 
   tasks:
     # Defaulted inside the test rather than in vars: an undefined variable would otherwise blow up as a
@@ -69,9 +68,9 @@
         - name: Report
           ansible.builtin.debug:
             msg: >-
-              Tunnel stopped: '{{ tunnel_container }}' removed. The Cloudflare tunnel and both hostnames
-              still exist but go Inactive, so apw1db. and apw1-git. stop reaching this VM. tofu is
-              untouched.
+              Tunnel stopped: '{{ tunnel_container }}' removed. The Cloudflare tunnel and its hostname
+              still exist but go Inactive, so apw1db. stops reaching this VM. Gitea is unaffected — it
+              answers on git.apw1.vrittiai.com, which bypasses the tunnel. tofu is untouched.
 
     # ----------------------------------------------------------------- start
     - name: Start the tunnel
@@ -146,8 +145,8 @@
               -e tunnel_origin_services='["…"]' to bring up only the routes that exist.
             quiet: true
 
-        # One connector, every network its routes live on. Usually a single network, but Postgres and
-        # Gitea are free to sit on separate ones — the agent decides, not this repo.
+        # One connector, every network its routes live on. A single network today, but routes are free to
+        # sit on separate ones — the agent decides, not this repo.
         - name: Build the docker network attachment list
           ansible.builtin.set_fact:
             tunnel_network_specs: "{{ (tunnel_network_specs | default([])) + [{'name': item}] }}"
@@ -182,4 +181,4 @@
               Tunnel started: '{{ tunnel_container }}' joined {{ tunnel_networks | join(', ') }},
               serving {{ tunnel_origin_services | join(', ') }}. The Cloudflare tunnel should go Healthy
               within ~10s — check `docker logs {{ tunnel_container }}`. Then from a laptop:
-              `pnpm db:tunnel:apw1` for Postgres, or open https://apw1-git.vrittiai.com for Gitea.
+              `pnpm db:tunnel:apw1` for Postgres.

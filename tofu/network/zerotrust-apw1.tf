@@ -7,8 +7,10 @@
 # local.cf_account_id, local.cf_zone_id, the GitHub IdP resource and var.github_org resolve across files.
 #
 # Everything NOT listed below stays public by design: agent nginx serves *.apw1 (unproxied wildcard, see
-# dns.tf) and git-over-SSH goes straight to the VM. The services here have no host-published port and no
-# security-group rule, so the tunnel is their only door and Access gates every connection through it.
+# dns.tf), Gitea answers on git.apw1.vrittiai.com through it, and git-over-SSH goes straight to the VM.
+# The services here have no host-published port and no security-group rule, so the tunnel is their only
+# door — and each route decides for itself whether Access stands in that door, via the `access` flag on
+# its map entry.
 # =====================================================================
 
 locals {
@@ -16,40 +18,42 @@ locals {
   # all key off apw1/apw2, so `vritti-apw2` stays unambiguous in a way `vritti-vm3` would not.
   apw1_tunnel_name = "vritti-apw1"
 
-  # label -> { url cloudflared forwards to on the VM, title on the Access login page }.
+  # label -> { url cloudflared forwards to on the VM, title on the Access login page, whether Access gates
+  # the hostname }.
   #
   # Each ingress rule needs its OWN hostname: one hostname cannot serve both a raw-TCP and an HTTP
   # origin, so "add a route" means "add an entry here" — the resources below fan out automatically.
   #
-  # Labels are deliberately FIRST-level (apw1-git, not git.apw1): free Universal SSL covers
-  # <label>.vrittiai.com, while a second-level name would need Advanced Certificate Manager (see the
-  # zone notes in dns.tf).
+  # Labels must be FIRST-level (apw1db, not db.apw1): free Universal SSL covers <label>.vrittiai.com,
+  # while a second-level name would need Advanced Certificate Manager and otherwise dies at the TLS
+  # handshake with no certificate at all (see the zone notes in dns.tf).
   #
   # CAVEAT on the service names: apw1's stack is materialized by the AGENT from cloud's signed
-  # desired-state, not by Ansible, so `postgres` and `gitea` must match what the containers actually
-  # answer to on the docker network cloudflared joins. ansible/core/db-tunnel.yml asserts exactly that
-  # before starting the connector, because a wrong name here still resolves and still passes Access,
-  # then fails at the origin — indistinguishable from an outage unless you already suspect the config.
+  # desired-state, not by Ansible, so `postgres` must match what the container actually answers to on
+  # the docker network cloudflared joins. ansible/core/apw1-tunnel.yml asserts exactly that before
+  # starting the connector, because a wrong name here still resolves and still passes Access, then
+  # fails at the origin — indistinguishable from an outage unless you already suspect the config.
   apw1_services = {
     # Postgres — raw TCP. Reach it with `cloudflared access tcp --hostname apw1db.vrittiai.com
     # --url localhost:5432`, which in vritti-core is `pnpm db:tunnel:apw1` paired with the apw1-local
     # Infisical env (whose PRIMARY_DB_HOST=localhost only means "apw1" while that is running).
     # Keep this label as-is: vritti-core's db:tunnel:apw1 script hard-codes apw1db.vrittiai.com.
+    # Keep this GATED. On a tcp:// route Access is the whole authentication story: `cloudflared access tcp`
+    # reaches Postgres through the edge's WS bridge, so without an Access app in front the only remaining
+    # barrier is the database password.
     "apw1db" = {
-      url   = "tcp://postgres:5432"
-      title = "Vritti APW1 DB"
+      url    = "tcp://postgres:5432"
+      title  = "Vritti APW1 DB"
+      access = true
     }
 
-    # Gitea web UI — plain HTTP behind Access, so a browser at https://apw1-git.vrittiai.com gets the
-    # GitHub SSO gate and then the UI. NOTE: `git clone` over HTTPS will NOT work through this, because
-    # the git CLI cannot satisfy an Access challenge — use git-over-SSH direct to the VM for that, or an
-    # Access service token. Core-server's own Gitea API calls are unaffected: they go over the docker
-    # network and never touch this hostname.
-    "apw1-git" = {
-      url   = "http://gitea:3000"
-      title = "Vritti APW1 Git"
-    }
+    # Gitea is deliberately NOT here: its DOMAIN/ROOT_URL and GITEA_BASE_URL are git.apw1.vrittiai.com,
+    # which the unproxied *.apw1 wildcard already answers straight off the VM (dns.tf).
   }
+
+  # Only the gated routes get an Access application + policy. Filtered rather than conditional-per-resource
+  # so each route's decision reads off the map above.
+  apw1_access_services = { for label, service in local.apw1_services : label => service if service.access }
 }
 
 # Secret shared with the tunnel record; cloudflared on the VM authenticates with the token output
@@ -98,11 +102,11 @@ resource "cloudflare_record" "apw1" {
   comment         = "managed by tofu (zero trust tunnel -> apw1)"
 }
 
-# Access application + GitHub-org policy per route, mirroring the vm1 services in zerotrust.tf. 24h
+# Access application + GitHub-org policy per GATED route, mirroring the vm1 services in zerotrust.tf. 24h
 # sessions, so a laptop re-authenticates daily; `cloudflared access tcp` caches the token under
 # ~/.cloudflared and a browser keeps a cookie.
 resource "cloudflare_zero_trust_access_application" "apw1" {
-  for_each = local.apw1_services
+  for_each = local.apw1_access_services
 
   account_id                = local.cf_account_id
   name                      = each.value.title
@@ -114,7 +118,7 @@ resource "cloudflare_zero_trust_access_application" "apw1" {
 }
 
 resource "cloudflare_zero_trust_access_policy" "apw1" {
-  for_each = local.apw1_services
+  for_each = local.apw1_access_services
 
   application_id = cloudflare_zero_trust_access_application.apw1[each.key].id
   account_id     = local.cf_account_id
