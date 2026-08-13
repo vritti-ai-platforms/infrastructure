@@ -97,6 +97,42 @@ ansi-core env="":
     fi
     cd ansible/core && infisical run --env="$sel" --path=/agent/ansible -- ansible-playbook site.yml
 
+# Touches ONLY the cloudflared-tunnel container — never the agent or the deployment. The Cloudflare side
+# (tunnel, DNS records, Access apps) is owned by tofu/network/zerotrust-apw1.tf and stays in place either
+# way; stopping just detaches the connector, so the tunnel goes Inactive and every route stops resolving
+# to this VM.
+#
+# No env default on purpose — naming the deployment is what stops you opening the wrong one's services.
+#
+# Start/stop a core VM's Access-gated tunnel (Postgres + Gitea) — pass start|stop and the env; menus if omitted
+ansi-core-apw1-tunnel action="" env="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    act="{{action}}"
+    if [ -z "$act" ]; then
+      echo "Select an action:" >&2; PS3="> "
+      select act in start stop; do [ -n "$act" ] && break; done
+    fi
+    case "$act" in start|stop) ;; *) echo "ansi-core-apw1-tunnel: action must be start | stop (got '$act')" >&2; exit 1;; esac
+    sel="{{env}}"
+    if [ -z "$sel" ]; then
+      echo "Select a core env to $act the tunnel on:" >&2; PS3="> "
+      select sel in {{core_envs}}; do [ -n "$sel" ] && break; done
+    fi
+    if [ "$act" = start ]; then
+      # The token lives in the infrastructure project's tofu state; ansible/core is pinned to the
+      # vritti-core project and has no R2 creds, so fetch it here and pass it through the env.
+      echo "── reading ${sel}_tunnel_token from tofu/network ──"
+      token=$(cd tofu/network && infisical run --silent -- tofu output -raw "${sel}_tunnel_token")
+      [ -n "$token" ] || { echo "empty ${sel}_tunnel_token — does tofu/network define a tunnel for '${sel}', and has it been applied?" >&2; exit 1; }
+      cd ansible/core && CF_TUNNEL_TOKEN="$token" \
+        infisical run --env="$sel" --path=/agent/ansible -- \
+        ansible-playbook db-tunnel.yml -e tunnel_action=start
+    else
+      cd ansible/core && infisical run --env="$sel" --path=/agent/ansible -- \
+        ansible-playbook db-tunnel.yml -e tunnel_action=stop
+    fi
+
 # Roll a core VM's agent to the latest image — force-pull latest-main + restart; enrollment kept; menu if omitted
 ansi-core-agent env="":
     #!/usr/bin/env bash

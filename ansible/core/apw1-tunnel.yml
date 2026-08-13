@@ -1,0 +1,185 @@
+---
+# db-tunnel.yml — start/stop the Access-gated tunnel on an apwN core VM.
+#
+# Deliberately SEPARATE from site.yml: that play bootstraps the host and owns the agent, so it is the
+# wrong tool for toggling one container. This play never touches base/agent/the deployment — it only adds
+# or removes a `cloudflared` container beside the agent-managed stack, so it is safe to run at any time,
+# including while the deployment is serving traffic.
+#
+#   just ansi-core-apw1-tunnel start apw1
+#   just ansi-core-apw1-tunnel stop apw1
+#   just ansi-core-apw1-tunnel              # picker menus for both action and env
+#
+# Raw form (the recipe wires CF_TUNNEL_TOKEN for you):
+#   CF_TUNNEL_TOKEN=$(cd ../../tofu/network && infisical run --silent -- tofu output -raw apw1_tunnel_token) \
+#     infisical run --env=apw1 --path=/agent/ansible -- ansible-playbook db-tunnel.yml -e tunnel_action=start
+#
+# Why the token arrives as an env var instead of being read here: ansible/core is pinned to the
+# vritti-core Infisical project and holds NO R2/tofu credentials (see ansible.cfg), so this play cannot
+# read tofu's state itself. The justfile recipe fetches it from the infrastructure project instead.
+#
+# The Cloudflare side — the tunnel, both DNS records and both Access apps — is owned by
+# tofu/network/zerotrust-apw1.tf. Until this play runs, that tunnel exists but reports Inactive, because
+# no connector is attached to it.
+- name: Toggle the core VM's Zero-Trust tunnel
+  hosts: core
+  become: true
+  gather_facts: true
+
+  vars:
+    # tunnel_action (start | stop) is deliberately NOT defaulted. This play opens or closes reachability
+    # to production services, so the caller has to say which — a default would make the dangerous
+    # direction the accidental one. Supplied as -e tunnel_action=… .
+
+    cloudflared_image: "cloudflare/cloudflared:2024.10.1"
+    # Named apart from the cloud VM's `cloudflared` container so the two are never confused.
+    tunnel_container: "cloudflared-tunnel"
+
+    # MUST mirror the service names in local.apw1_services (tofu/network/zerotrust-apw1.tf), i.e. the
+    # host part of each ingress URL. cloudflared resolves these over docker DNS, so each one has to be a
+    # container name or a network alias on this host. Asserted below rather than left to fail at
+    # connection time. Override with -e tunnel_origin_services='["postgres"]' to bring up a subset.
+    tunnel_origin_services:
+      - postgres
+      - gitea
+
+  tasks:
+    # Defaulted inside the test rather than in vars: an undefined variable would otherwise blow up as a
+    # Jinja error instead of this message.
+    - name: Require an explicit action
+      ansible.builtin.assert:
+        that: (tunnel_action | default('')) in ['start', 'stop']
+        fail_msg: >-
+          Pass -e tunnel_action=start or -e tunnel_action=stop. There is no default: this play opens or
+          closes reachability to production services.
+        quiet: true
+
+    # ------------------------------------------------------------------ stop
+    # `absent`, not `stopped`: the container carries the tunnel token in its env, and a stopped container
+    # is one `docker start` away from reopening every route. Removing it means the door is actually gone
+    # until someone re-runs this play with a freshly fetched token.
+    - name: Remove the tunnel container
+      when: tunnel_action == 'stop'
+      block:
+        - name: Stop and remove the connector
+          community.docker.docker_container:
+            name: "{{ tunnel_container }}"
+            state: absent
+
+        - name: Report
+          ansible.builtin.debug:
+            msg: >-
+              Tunnel stopped: '{{ tunnel_container }}' removed. The Cloudflare tunnel and both hostnames
+              still exist but go Inactive, so apw1db. and apw1-git. stop reaching this VM. tofu is
+              untouched.
+
+    # ----------------------------------------------------------------- start
+    - name: Start the tunnel
+      when: tunnel_action == 'start'
+      block:
+        - name: Require a tunnel token
+          ansible.builtin.assert:
+            that: (lookup('env', 'CF_TUNNEL_TOKEN') | default('', true)) | length > 0
+            fail_msg: >-
+              CF_TUNNEL_TOKEN is empty. Use `just ansi-core-apw1-tunnel start <env>`, which reads it from
+              `tofu -chdir=tofu/network output -raw <env>_tunnel_token`; a bare ansible-playbook run has
+              no way to reach that state.
+            quiet: true
+
+        # "if not exists" — docker is normally already here (site.yml installs it), so this is a safety
+        # net for a host that was never fully bootstrapped.
+        - name: Check whether docker is installed
+          ansible.builtin.command: docker --version
+          register: docker_check
+          changed_when: false
+          failed_when: false
+          check_mode: false # read-only probe; must run under --check or the guard below has no input
+
+        - name: Install Docker Engine (only when missing)
+          ansible.builtin.include_role:
+            name: docker
+          when: docker_check.rc != 0
+
+        # Every name a running container answers to, paired with the network it answers on — container
+        # name plus each network alias. Discovery rather than configuration because the containers and
+        # their networks are created by the AGENT from cloud's signed desired-state, so none of those
+        # names are knowable from this repo. docker CLI + jq (installed by the base role) is used instead
+        # of the docker modules because module return shapes vary between collection versions.
+        - name: Map every resolvable container name to its docker network
+          ansible.builtin.shell:
+            executable: /bin/bash
+            cmd: |
+              set -euo pipefail
+              command -v jq >/dev/null || { echo "jq is not installed on this host" >&2; exit 3; }
+              ids=$(docker ps -q)
+              [ -n "$ids" ] || { echo "no running containers on this host" >&2; exit 4; }
+              docker inspect $ids | jq -c '
+                [ .[]
+                  | (.Name | ltrimstr("/")) as $cn
+                  | (.NetworkSettings.Networks | to_entries[]) as $ne
+                  | ([$cn] + ($ne.value.Aliases // []))[] as $alias
+                  | {alias: $alias, network: $ne.key}
+                ] | unique'
+          register: name_probe
+          changed_when: false
+          check_mode: false # read-only discovery; must run under --check or the facts below are unset
+
+        - name: Resolve which networks the connector has to join
+          ansible.builtin.set_fact:
+            resolvable_names: "{{ (name_probe.stdout | from_json) | map(attribute='alias') | unique | list }}"
+            tunnel_networks: >-
+              {{ (name_probe.stdout | from_json)
+                 | selectattr('alias', 'in', tunnel_origin_services)
+                 | map(attribute='network') | unique | list }}
+
+        # Catches the one mistake that is genuinely hard to debug later: a tofu ingress pointing at a name
+        # docker cannot resolve. That failure passes DNS and passes Access, then dies at the origin —
+        # indistinguishable from a service outage unless you already suspect the config.
+        - name: Assert every tofu ingress hostname resolves on this host
+          ansible.builtin.assert:
+            that: (tunnel_origin_services | difference(resolvable_names)) | length == 0
+            fail_msg: >-
+              These names appear in tofu's apw1 ingress but nothing running on this host answers to them:
+              {{ tunnel_origin_services | difference(resolvable_names) | join(', ') }}.
+              Containers here answer to: {{ resolvable_names | join(', ') }}.
+              Fix local.apw1_services in tofu/network/zerotrust-apw1.tf and re-apply, or pass
+              -e tunnel_origin_services='["…"]' to bring up only the routes that exist.
+            quiet: true
+
+        # One connector, every network its routes live on. Usually a single network, but Postgres and
+        # Gitea are free to sit on separate ones — the agent decides, not this repo.
+        - name: Build the docker network attachment list
+          ansible.builtin.set_fact:
+            tunnel_network_specs: "{{ (tunnel_network_specs | default([])) + [{'name': item}] }}"
+          loop: "{{ tunnel_networks }}"
+
+        # "if not exists" — pull:not_present skips the registry entirely when the image is already local,
+        # so a restart on a metered or briefly offline host still works.
+        - name: Ensure the cloudflared image is present
+          community.docker.docker_image_pull:
+            name: "{{ cloudflared_image }}"
+            pull: not_present
+
+        - name: Run the cloudflared connector
+          community.docker.docker_container:
+            name: "{{ tunnel_container }}"
+            image: "{{ cloudflared_image }}"
+            command: "tunnel --no-autoupdate run"
+            env:
+              TUNNEL_TOKEN: "{{ lookup('env', 'CF_TUNNEL_TOKEN') }}"
+            networks: "{{ tunnel_network_specs }}"
+            networks_cli_compatible: true
+            restart_policy: unless-stopped
+            memory: "128m"
+            state: started
+            # A re-run with a rotated token must replace the container, not no-op on the old env.
+            recreate: true
+          no_log: true
+
+        - name: Report
+          ansible.builtin.debug:
+            msg: >-
+              Tunnel started: '{{ tunnel_container }}' joined {{ tunnel_networks | join(', ') }},
+              serving {{ tunnel_origin_services | join(', ') }}. The Cloudflare tunnel should go Healthy
+              within ~10s — check `docker logs {{ tunnel_container }}`. Then from a laptop:
+              `pnpm db:tunnel:apw1` for Postgres, or open https://apw1-git.vrittiai.com for Gitea.
