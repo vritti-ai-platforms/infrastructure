@@ -6,8 +6,10 @@ Requires=docker.service
 
 [Service]
 # Clean any prior container, then run the agent with access to the Docker socket, its state dir, the web
-# stack root (bind-mount source the agent renders containers against), and the host Docker config (read-only)
-# so the agent can pull PRIVATE images with the credentials `docker login` (roles/docker) already wrote.
+# stack root (bind-mount source the agent renders containers against), and the host Docker config so the agent
+# can pull PRIVATE images with the credentials `docker login` (roles/docker) already wrote. The config is
+# mounted READ-WRITE (not :ro) because the agent also `docker login`s each org's gitea registry to pull its
+# website images — that write appends to the same config, preserving the GHCR auth already there.
 ExecStartPre=-/usr/bin/docker rm -f vritti-ws-agent
 # Pre-create the web stack network so the agent + its containers (postgres, caddy, website-*) share it.
 ExecStartPre=-/usr/bin/docker network create {{ ws_agent_network }}
@@ -17,7 +19,7 @@ ExecStart=/usr/bin/docker run --rm --name vritti-ws-agent \
   --env-file {{ ws_agent_config_dir }}/ws-agent.env \
   -e DOCKER_CONFIG=/root/.docker \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v /root/.docker:/root/.docker:ro \
+  -v /root/.docker:/root/.docker \
   -v {{ ws_agent_data_dir }}:{{ ws_agent_data_dir }} \
   -v {{ ws_agent_stack_root }}:{{ ws_agent_stack_root }} \
   {{ ws_agent_image }}:{{ ws_agent_image_tag }}
