@@ -5,7 +5,9 @@
 # resolves before we SSH in.
 ansible_host: "{{ target_host }}"
 ansible_python_interpreter: /usr/bin/python3
-ansible_user: ubuntu
+# SSH/deploy user — overridable via `-e deploy_user=<name>` (the `just ansi-ws … user=<name>` recipe passes
+# it). Defaults to `ubuntu` (Ubuntu cloud-init ships it); e.g. Debian images log in as `root` or `admin`.
+ansible_user: "{{ deploy_user | default('ubuntu') }}"
 ansible_ssh_private_key_file: "~/.ssh/id_rsa"
 
 # GHCR login (docker role) — from this env's secrets; the login persists on the host so the ws-agent role

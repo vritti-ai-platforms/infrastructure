@@ -10,7 +10,7 @@
 
 - name: Add Docker GPG key
   ansible.builtin.get_url:
-    url: https://download.docker.com/linux/ubuntu/gpg
+    url: "https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}/gpg"
     dest: /etc/apt/keyrings/docker.asc
     mode: "0644"
 
@@ -25,7 +25,7 @@
   ansible.builtin.deb822_repository:
     name: docker
     types: [deb]
-    uris: "https://download.docker.com/linux/ubuntu"
+    uris: "https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}"
     suites: ["{{ ansible_facts['distribution_release'] }}"]
     components: [stable]
     architectures: ["{{ docker_apt_arch }}"]
@@ -61,11 +61,12 @@
     enabled: true
     state: started
 
-- name: Add ubuntu user to docker group
+- name: Add deploy user to docker group
   ansible.builtin.user:
-    name: ubuntu
+    name: "{{ deploy_user | default('ubuntu') }}"
     groups: docker
     append: true
+  when: (deploy_user | default('ubuntu')) != 'root'
 
 - name: Log in to GHCR (for private image pulls)
   community.docker.docker_login:

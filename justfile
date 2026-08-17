@@ -164,32 +164,39 @@ ansi-core-agent-re-enroll env="":
 # server code, so the target is {env}.vrittiai.com; each env supplies WEB_SERVER_ID, ENROLL_TOKEN, GHCR_*.
 # Run these from ansible/webserver (its .infisical.json pins the web-server project).
 
-# FULL-provision a web-server VM — base + docker + ws-agent + first enroll. Pass the env (ws1); prompts if omitted.
-ansi-ws env="":
+# FULL-provision a web-server VM — base + docker + ws-agent + first enroll. Pass the env (ws1); prompts if
+# omitted. `user` = the SSH/deploy user (default ubuntu; e.g. `root` on Debian images) — prompts if omitted.
+ansi-ws env="" user="":
     #!/usr/bin/env bash
     set -euo pipefail
-    sel="{{env}}"
+    sel="{{env}}"; sel="${sel#env=}"
     [ -n "$sel" ] || read -r -p "Web server env (ws1, ws2, …): " sel
+    u="{{user}}"; [ -n "$u" ] || { read -r -p "SSH user [ubuntu]: " u; u="${u:-ubuntu}"; }
+    u="${u#user=}"
     cd ansible/webserver && infisical run --env="$sel" --path=/agent/ansible -- \
-      ansible-playbook site.yml -e target_host="${sel}.vrittiai.com"
+      ansible-playbook site.yml -e target_host="${sel}.vrittiai.com" -e deploy_user="$u"
 
 # Roll a web server's ws-agent to the latest image — force-pull latest-main + restart; enrollment kept.
-ansi-ws-agent env="":
+ansi-ws-agent env="" user="":
     #!/usr/bin/env bash
     set -euo pipefail
-    sel="{{env}}"
+    sel="{{env}}"; sel="${sel#env=}"
     [ -n "$sel" ] || read -r -p "Web server env (ws1, ws2, …): " sel
+    u="{{user}}"; [ -n "$u" ] || { read -r -p "SSH user [ubuntu]: " u; u="${u:-ubuntu}"; }
+    u="${u#user=}"
     cd ansible/webserver && infisical run --env="$sel" --path=/agent/ansible -- \
-      ansible-playbook site.yml --tags ws-agent -e target_host="${sel}.vrittiai.com" -e ws_agent_force_restart=true
+      ansible-playbook site.yml --tags ws-agent -e target_host="${sel}.vrittiai.com" -e ws_agent_force_restart=true -e deploy_user="$u"
 
 # Re-enroll a web server's ws-agent with a FRESH single-use token — wipes its credential + re-enrolls
 # (regenerate the token in the admin console + update the env's ENROLL_TOKEN first; confirms).
-ansi-ws-re-enroll env="":
+ansi-ws-re-enroll env="" user="":
     #!/usr/bin/env bash
     set -euo pipefail
-    sel="{{env}}"
+    sel="{{env}}"; sel="${sel#env=}"
     [ -n "$sel" ] || read -r -p "Web server env (ws1, ws2, …): " sel
+    u="{{user}}"; [ -n "$u" ] || { read -r -p "SSH user [ubuntu]: " u; u="${u:-ubuntu}"; }
+    u="${u#user=}"
     read -r -p "Reset + RE-ENROLL ws-agent on ${sel}.vrittiai.com? Wipes its cached credential and consumes a single-use enroll token. [y/N] " ok
     [ "$ok" = y ] || [ "$ok" = Y ] || { echo "aborted (no changes)"; exit 0; }
     cd ansible/webserver && infisical run --env="$sel" --path=/agent/ansible -- \
-      ansible-playbook site.yml --tags ws-agent -e target_host="${sel}.vrittiai.com" -e ws_agent_reset=true
+      ansible-playbook site.yml --tags ws-agent -e target_host="${sel}.vrittiai.com" -e ws_agent_reset=true -e deploy_user="$u"

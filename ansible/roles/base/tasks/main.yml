@@ -59,12 +59,13 @@
     state: present
     reload: true
 
-- name: Ensure ubuntu deploy user exists
+- name: Ensure deploy user exists
   ansible.builtin.user:
-    name: ubuntu
+    name: "{{ deploy_user | default('ubuntu') }}"
     shell: /bin/bash
     groups: sudo
     append: true
+  when: (deploy_user | default('ubuntu')) != 'root'
 
 - name: Enable unattended security upgrades
   ansible.builtin.service:
@@ -112,6 +113,6 @@
   ansible.builtin.file:
     path: /opt/vritti
     state: directory
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ deploy_user | default('ubuntu') }}"
+    group: "{{ deploy_user | default('ubuntu') }}"
     mode: "0755"
